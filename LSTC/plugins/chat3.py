@@ -4,6 +4,7 @@
 import threading
 import random
 import cPickle
+import urllib
 
 from time import strftime
 import time
@@ -34,6 +35,7 @@ DFGHJKLZXCVBNM'
         
         # Load data from saved files.
         self.load_accounts()
+        print self.accounts
         self.load_channels()
         self.load_list()
         
@@ -235,6 +237,7 @@ class User(object):
         self.channel = None # The "current" channel.
     
     def new_message(self, message):
+        message = message.replace('" "sent"', '')
         
         if time.time() <= self.temp_silence:
             return
@@ -650,8 +653,8 @@ Message Log: {3}""".format(self.name,
         
         else:
             result = result.split(':')
-            if result[2] == 'blocked' or result[2] in self.banned:
-                return 0
+            if result[2] == 'blocked' or result[2] in self.server.banned:
+                pass
             
             else:
                 if username not in self.server.accounts:
@@ -985,7 +988,7 @@ Message Log: {3}""".format(self.name,
         
         new_message = ''
         for word in message:
-            if word in self.server.badwords and word not '':
+            if word in self.server.badwords and word != '':
                 word = "*ponies*"
             
             new_message += ' ' + word

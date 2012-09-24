@@ -89,11 +89,10 @@ self.plugins['{0}'].start()'''.format(plugin))
                 
                 hashed_ip = hashlib.md5()
                 hashed_ip.update(c.address[0])
-                hashed_ip.hexdigest()
-                c.address[3] = hashed_ip
+                c.hashed_ip = hashed_ip.hexdigest()
                 
                 if self.mode == 'BLACKLIST':
-                    if c.address[3] not in self.blacklist:
+                    if c.hashed_ip not in self.blacklist:
                         c.start() # Starts it.
                 
                         # Adds it to a list so the variable c and be used
@@ -332,7 +331,7 @@ class Client(threading.Thread):
                 'ban_user' : self.ban_user,
                 'unban_user' : self.unban_user,
                 'force_leave' : self.force_disconnect,
-                'ip' : self.address[3]}
+                'ip' : self.hashed_ip}
     
     def ban_user(self, ip):
         s.blacklist.append(ip)
