@@ -28,7 +28,7 @@ class Server(object):
         for x in xrange(0, 4):
             self.key += str(random.randrange(0, 9))
         
-        log(self.key, key='key_)
+        log(self.key, key='key_')
         
         # Type in the filenames (exclude the extentions) for each
         # plugin you want.
