@@ -108,7 +108,7 @@ categories available: basic, channel, mod, owner''',
     # channel_message sends a message to all those in a channel.
     def channel_message(self, channel, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
-        log(channel, message)
+        log('channel_' + channel, message)
         for user in self.users:
             if channel in self.users[user].channels:
                 self.users[user].send_sensor('chat', message)
