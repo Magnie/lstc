@@ -225,7 +225,7 @@ class User(object):
         
         # Restrict how fast messages are sent.
         self.last_sent = 0
-        self.message_limit = 4
+        self.message_limit = 5
         self.message_current = 0
         self.limit_hit = 0
         self.max_hits = 5
@@ -264,6 +264,7 @@ class User(object):
         
         else:
             self.last_sent = time.time()
+            self.message_current = 0
         
         
         # Split the command/request from the arguments/options.
@@ -315,6 +316,11 @@ class User(object):
         elif cmd == 'auth':
             args = args.split(' ')
             self.login_account(args[0], args[1])
+        
+        # Authenticate via Scratch to give you access to more commands.
+        elif cmd == 'login':
+            args = args.split(' ')
+            self.scratch_auth(args[0], args[1])
         
         # Create an account to use.
         elif cmd == 'create':
@@ -625,7 +631,7 @@ Message Log: {3}""".format(self.name,
             message = "Wrong username or password!"
             self.server.user_message(self.name, message)
     
-    def scratch_auth(self, username, password, uid):
+    def scratch_auth(self, username, password):
         # Make sure the user isn't already logged in.
         if self.auth_name != 'no one':
             message = "You are already logged in!"
@@ -653,6 +659,15 @@ Message Log: {3}""".format(self.name,
                 
                 self.server_level = self.server.accounts[username][1]
                 self.auth_name = username
+        
+        if self.server_level != '-':
+            message = "You have logged in as {0}!"
+            message = message.format(username)
+            self.server.user_message(self.name, message)
+            
+        else:
+            message = "Wrong username or password!"
+            self.server.user_message(self.name, message)
     
     def whois_user(self, name):
         for user_id in self.server.users:

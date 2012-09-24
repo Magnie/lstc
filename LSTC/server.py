@@ -6,13 +6,16 @@ import socket
 import threading
 import traceback
 import random
+import hashlib
 
 from array import array
 
 
 class Server(object):
     
-    def __init__(self, host="0.0.0.0", # 0.0.0.0 means anyone can connect
+    def __init__(self, host="0.0.0.0", # 0.0.0.0 means anyone can connect.
+                                       # 10.0.0.*, 198.162.1.* is LAN only.
+                                       # 127.0.0.1 is only on your computer.
                        port=42001,
                        backlog=5):
         self.sock = socket.socket(socket.AF_INET,
@@ -25,7 +28,7 @@ class Server(object):
         for x in xrange(0, 4):
             self.key += str(random.randrange(0, 9))
         
-        log(self.key)
+        log(self.key, key='key_)
         
         # Type in the filenames (exclude the extentions) for each
         # plugin you want.
@@ -84,8 +87,13 @@ self.plugins['{0}'].start()'''.format(plugin))
                 # Waits for a client then accepts it.
                 c = Client(self.sock.accept(), id_count)
                 
+                hashed_ip = hashlib.md5()
+                hashed_ip.update(self.address[0])
+                hashed_ip.hexdigest()
+                c.address[3] = hashed_ip
+                
                 if self.mode == 'BLACKLIST':
-                    if c.address[0] not in self.blacklist:
+                    if c.address[3] not in self.blacklist:
                         c.start() # Starts it.
                 
                         # Adds it to a list so the variable c and be used
@@ -97,7 +105,7 @@ self.plugins['{0}'].start()'''.format(plugin))
                         log(str(c.address[0]) + ' attempted to connected.')
                         c.close()
                 else:
-                    if c.address[0] in self.whitelist:
+                    if c.address[3] in self.whitelist:
                         c.start() # Starts it.
                 
                         # Adds it to a list so the variable c and be used
@@ -171,6 +179,7 @@ class Client(threading.Thread):
         threading.Thread.__init__(self)
         self.client = client
         self.address = address
+        
         self.size = 1024
         
         self.plugins = []
@@ -320,7 +329,7 @@ class Client(threading.Thread):
                 'ban_user' : self.ban_user,
                 'unban_user' : self.unban_user,
                 'force_leave' : self.force_disconnect,
-                'ip' : self.address[0]}
+                'ip' : self.address[3]}
     
     def ban_user(self, ip):
         s.blacklist.append(ip)
@@ -360,15 +369,15 @@ class Client(threading.Thread):
         for plugin in self.plugins:
             s.plugins[plugin].lost_user(self.user_id)
 
-def log(string):
+def log(string, key=''):
     string = str(string)
     print string
     try:
-        log_file = open("server.log", 'a')
+        log_file = open(key + "server.log", 'a')
         log_file.write('\n' + string)
         log_file.close()
     except IOError, e:
-        log_file = open("server.log", 'w')
+        log_file = open(key + "server.log", 'w')
         log_file.write(string)
         log_file.close()
 

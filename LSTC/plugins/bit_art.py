@@ -7,6 +7,7 @@
 import threading
 import time
 import cPickle
+import random
 
 
 class Server(threading.Thread):
@@ -28,6 +29,10 @@ class Server(threading.Thread):
         self.column_structure = '1234567890-=qwertyuiopasdfghjklzxcvbnm!@#$%^&*()_+{}|:"<>?~`'
         
         self.switch = 0
+        
+        self.key = ''
+        for x in xrange(0, 4):
+            self.key += str(random.randrange(0, 9))
         
         self.load_image()
     
@@ -66,7 +71,7 @@ class Server(threading.Thread):
         elif cmd == 'login' and len(args) == 2:
             self.scratch_auth(args[0], args[1], user_id)
         
-        elif cmd == 'reset_map' and args[0] == '1234':
+        elif cmd == 'reset_map' and args[0] == self.key:
             self.reset_map()
     
     def disconnect(self):
@@ -106,8 +111,8 @@ class Server(threading.Thread):
     # Game functions
     
     def update_pixel(self, pos_x, pos_y, uid):
-        if uid not in self.placers:
-            return
+        #if uid not in self.placers:
+        #    return
         
         pos_x = self.size * round(pos_x / float(size))
         pos_y = self.size * round(pos_y / float(size))
@@ -123,7 +128,7 @@ class Server(threading.Thread):
         value = (value + 1) % 2
         
         self.art[pos_y][pos_x] = value
-        self.last_placer = uid
+        self.last_placer = self.users[uid]['ip']
         
         self.update_clients(pos_x, pos_y, value)
         
