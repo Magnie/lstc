@@ -88,7 +88,7 @@ self.plugins['{0}'].start()'''.format(plugin))
                 c = Client(self.sock.accept(), id_count)
                 
                 hashed_ip = hashlib.md5()
-                hashed_ip.update(self.address[0])
+                hashed_ip.update(c.address[0])
                 hashed_ip.hexdigest()
                 c.address[3] = hashed_ip
                 
