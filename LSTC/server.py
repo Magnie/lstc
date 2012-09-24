@@ -210,6 +210,9 @@ class Client(threading.Thread):
                 value = data['sensor-update'][sensor]
                 self.new_sensor(sensor, value)
         
+        for plugin in self.plugins:
+            s.plugins[plugin].lost_user(self.user_id)
+        
         self.close()
         self.client.close()
     
