@@ -13,9 +13,7 @@ from array import array
 
 class Server(object):
     
-    def __init__(self, host="0.0.0.0", # 0.0.0.0 means anyone can connect.
-                                       # 10.0.0.*, 198.162.1.* is LAN only.
-                                       # 127.0.0.1 is only on your computer.
+    def __init__(self, host="0.0.0.0", # 0.0.0.0 means anyone can connect
                        port=42001,
                        backlog=5):
         self.sock = socket.socket(socket.AF_INET,
@@ -28,7 +26,7 @@ class Server(object):
         for x in xrange(0, 4):
             self.key += str(random.randrange(0, 9))
         
-        log(self.key, key='key_')
+        log(self.key)
         
         # Type in the filenames (exclude the extentions) for each
         # plugin you want.
@@ -87,33 +85,34 @@ self.plugins['{0}'].start()'''.format(plugin))
                 # Waits for a client then accepts it.
                 c = Client(self.sock.accept(), id_count)
                 
-                hashed_ip = hashlib.md5()
-                hashed_ip.update(c.address[0])
-                c.hashed_ip = hashed_ip.hexdigest()
+                # Create a hash of the IP to hide from admins/mods.
+                m = hashlib.md5()
+                m.update(c.address[0])
+                c.ip_hash = m.hexdigest()
                 
                 if self.mode == 'BLACKLIST':
-                    if c.hashed_ip not in self.blacklist:
+                    if c.ip_hash not in self.blacklist:
                         c.start() # Starts it.
                 
                         # Adds it to a list so the variable c and be used
                         # for the next client.
                         self.threads.append(c)
-                        log(str(c.address[0]) + ' has connected.')
+                        log(str(c.ip_hash) + ' has connected.')
                     
                     else:
-                        log(str(c.address[0]) + ' attempted to connected.')
+                        log(str(c.ip_hash) + ' attempted to connected.')
                         c.close()
                 else:
-                    if c.address[3] in self.whitelist:
+                    if c.ip_hash in self.whitelist:
                         c.start() # Starts it.
                 
                         # Adds it to a list so the variable c and be used
                         # for the next client.
                         self.threads.append(c)
-                        log(str(c.address[0]) + ' has connected.')
+                        log(str(c.ip_hash) + ' has connected.')
                     
                     else:
-                        log(str(c.address[0]) + ' attempted to connected.')
+                        log(str(c.ip_hash) + ' attempted to connected.')
                         c.close()
             
         except KeyboardInterrupt:
@@ -134,7 +133,6 @@ self.plugins['{0}'].start()'''.format(plugin))
         for c in self.threads: # For each thread
             c.client.close()
             c.running = 0
-            c.stop() # Stop it.
             c.join() # End that thread.
         
         del self.threads
@@ -178,7 +176,6 @@ class Client(threading.Thread):
         threading.Thread.__init__(self)
         self.client = client
         self.address = address
-        
         self.size = 1024
         
         self.plugins = []
@@ -192,6 +189,7 @@ class Client(threading.Thread):
         while self.running:
             try:
                 data = self.client.recv(self.size)
+                print data
                 data = self.parse_data(data)
                 
             except:
@@ -202,6 +200,8 @@ class Client(threading.Thread):
                 self.running = 0
                 break
             
+            print data
+            
             for broadcast in data['broadcast']:
                 self.new_broadcast(broadcast)
         
@@ -209,8 +209,6 @@ class Client(threading.Thread):
                 value = data['sensor-update'][sensor]
                 self.new_sensor(sensor, value)
         
-        for plugin in self.plugins:
-            s.plugins[plugin].lost_user(self.user_id)
         
         self.close()
         self.client.close()
@@ -331,7 +329,7 @@ class Client(threading.Thread):
                 'ban_user' : self.ban_user,
                 'unban_user' : self.unban_user,
                 'force_leave' : self.force_disconnect,
-                'ip' : self.hashed_ip}
+                'ip' : self.ip_hash}
     
     def ban_user(self, ip):
         s.blacklist.append(ip)
@@ -371,15 +369,15 @@ class Client(threading.Thread):
         for plugin in self.plugins:
             s.plugins[plugin].lost_user(self.user_id)
 
-def log(string, key=''):
+def log(string):
     string = str(string)
     print string
     try:
-        log_file = open(key + "server.log", 'a')
+        log_file = open("server.log", 'a')
         log_file.write('\n' + string)
         log_file.close()
     except IOError, e:
-        log_file = open(key + "server.log", 'w')
+        log_file = open("server.log", 'w')
         log_file.write(string)
         log_file.close()
 

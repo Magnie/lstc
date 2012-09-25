@@ -4,7 +4,6 @@
 import threading
 import random
 import cPickle
-import urllib
 
 from time import strftime
 import time
@@ -35,7 +34,6 @@ DFGHJKLZXCVBNM'
         
         # Load data from saved files.
         self.load_accounts()
-        print self.accounts
         self.load_channels()
         self.load_list()
         
@@ -73,13 +71,17 @@ categories available: basic, channel, mod, owner''',
         self.user_message(name, message)
     
     def lost_user(self, user_id):
-        # A user has decided to disconnect. Remove them.
-        user = self.users[user_id]
-        user.dead = True
-        for chan in user.channels:
-            user.part_channel(chan)
+        try:
+            # A user has decided to disconnect. Remove them.
+            user = self.users[user_id]
+            user.dead = True
+            for chan in user.channels:
+                user.part_channel(chan)
         
-        del self.users[user_id]
+            del self.users[user_id]
+        
+        except KeyError:
+            pass
     
     def new_message(self, user_id, message):
         # Received a message from the client.
@@ -97,25 +99,35 @@ categories available: basic, channel, mod, owner''',
     def server_message(self, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
         log('global', message)
-        for user in self.users:
-            # Update the sensor value for 'chat' to 'message'.
-            self.users[user].send_sensor('chat', message)
+        for user_id in self.users:
+            try:
+                # Update the sensor value for 'chat' to 'message'.
+                self.users[user_id].send_sensor('chat', message)
             
-            # Update who it was from.
-            self.users[user].send_sensor('from', 'ServerNinja')
+                # Update who it was from.
+                self.users[user_id].send_sensor('from', 'ServerNinja')
             
-            # Tell the Scratch program that there is a new message.
-            self.users[user].send_broadcast('_chat_update')
+                # Tell the Scratch program that there is a new message.
+                self.users[user_id].send_broadcast('_chat_update')
+            
+            except Exception:
+                # If there is an error for some reason, then remove
+                # them so it doesn't cause problems later.
+                self.lost_user(user_id)
     
     # channel_message sends a message to all those in a channel.
     def channel_message(self, channel, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
-        log('channel_' + channel, message)
-        for user in self.users:
-            if channel in self.users[user].channels:
-                self.users[user].send_sensor('chat', message)
-                self.users[user].send_sensor('from', channel)
-                self.users[user].send_broadcast('_chat_update')
+        log(channel, message)
+        for user_id in self.users:
+            try:
+                if channel in self.users[user_id].channels:
+                    self.users[user_id].send_sensor('chat', message)
+                    self.users[user_id].send_sensor('from', channel)
+                    self.users[user_id].send_broadcast('_chat_update')
+            
+            except Exception:
+                self.lost_user(user_id)
     
     # user_message sends a message to a specific user.
     def user_message(self, name, message):
@@ -190,6 +202,7 @@ categories available: basic, channel, mod, owner''',
             list_file = open('badwords.chat', 'w')
             list_file.write('')
             list_file.close()
+            self.badwords = []
     
     def save_list(self):
         list_file = open('badwords.chat', 'w')
@@ -227,7 +240,7 @@ class User(object):
         
         # Restrict how fast messages are sent.
         self.last_sent = 0
-        self.message_limit = 5
+        self.message_limit = 4
         self.message_current = 0
         self.limit_hit = 0
         self.max_hits = 5
@@ -237,7 +250,6 @@ class User(object):
         self.channel = None # The "current" channel.
     
     def new_message(self, message):
-        message = message.replace('" "sent"', '')
         
         if time.time() <= self.temp_silence:
             return
@@ -634,7 +646,7 @@ Message Log: {3}""".format(self.name,
             message = "Wrong username or password!"
             self.server.user_message(self.name, message)
     
-    def scratch_auth(self, username, password):
+    def scratch_auth(self, username, password, uid):
         # Make sure the user isn't already logged in.
         if self.auth_name != 'no one':
             message = "You are already logged in!"
@@ -653,8 +665,8 @@ Message Log: {3}""".format(self.name,
         
         else:
             result = result.split(':')
-            if result[2] == 'blocked' or result[2] in self.server.banned:
-                pass
+            if result[2] == 'blocked' or result[2] in self.banned:
+                return 0
             
             else:
                 if username not in self.server.accounts:
@@ -662,15 +674,6 @@ Message Log: {3}""".format(self.name,
                 
                 self.server_level = self.server.accounts[username][1]
                 self.auth_name = username
-        
-        if self.server_level != '-':
-            message = "You have logged in as {0}!"
-            message = message.format(username)
-            self.server.user_message(self.name, message)
-            
-        else:
-            message = "Wrong username or password!"
-            self.server.user_message(self.name, message)
     
     def whois_user(self, name):
         for user_id in self.server.users:
@@ -985,6 +988,7 @@ Message Log: {3}""".format(self.name,
     
     def censor(self, raw_message):
         message = raw_message.split(' ')
+        print message
         
         new_message = ''
         for word in message:
@@ -993,6 +997,7 @@ Message Log: {3}""".format(self.name,
             
             new_message += ' ' + word
         
+        print new_message
         return new_message[1:]
     
     def get_help(self, item='help'):
