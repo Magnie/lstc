@@ -8,7 +8,10 @@ class Server(threading.Thread):
     
     def __init__(self):
         threading.Thread.__init__(self)
+        self.users = {} # Currently online users.
         
+        # 'scratch username' : {'x', 'y', 'd', 'costume', 'shield', 'armor'}
+        self.accounts = {}
     
     def run(self):
         # Run any continual scripts here, along side the main server.
@@ -17,10 +20,10 @@ class Server(threading.Thread):
     # Messages from server
     
     def new_user(self, user_id, functions):
-        pass
+        self.users[user_id] = User(functions)
     
     def lost_user(self, user_id):
-        pass
+        del self.users[user_id]
     
     def new_message(self, user_id, message):
         pass
@@ -31,5 +34,9 @@ class Server(threading.Thread):
 
 class User(object):
     
-    def __init__(self):
+    def __init__(self, functions):
+        self.functions = functions
+        self.account = None
+    
+    def new_message(message):
         pass

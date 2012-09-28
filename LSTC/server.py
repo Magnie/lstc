@@ -41,8 +41,9 @@ class Server(object):
         for plugin in self.load_plugins:
             try:
                 exec('''from plugins import {0}
-self.plugins['{0}'] = {0}.Server()
-self.plugins['{0}'].start()'''.format(plugin))
+p = {0}.Server()
+p.start()'''.format(plugin))
+                self.plugins[plugin] = p
             
             except:
                 log(traceback.format_exc())
@@ -114,6 +115,15 @@ self.plugins['{0}'].start()'''.format(plugin))
                     else:
                         log(str(c.ip_hash) + ' attempted to connected.')
                         c.close()
+                
+                i = 0
+                to_delete = []
+                for thread in self.threads:
+                    if thread.remove_self:
+                        to_delete.append(i)
+                
+                for i in to_delete:
+                    self.threads.pop(i)
             
         except KeyboardInterrupt:
             pass
@@ -182,6 +192,8 @@ class Client(threading.Thread):
         self.user_id = user_id
         
         self.key = ''
+        
+        self.remove_self = False
     
     def run(self):
         self.running = 1
@@ -189,7 +201,6 @@ class Client(threading.Thread):
         while self.running:
             try:
                 data = self.client.recv(self.size)
-                print data
                 data = self.parse_data(data)
                 
             except:
@@ -199,8 +210,6 @@ class Client(threading.Thread):
             if data == None:
                 self.running = 0
                 break
-            
-            print data
             
             for broadcast in data['broadcast']:
                 self.new_broadcast(broadcast)
@@ -329,13 +338,15 @@ class Client(threading.Thread):
                 'ban_user' : self.ban_user,
                 'unban_user' : self.unban_user,
                 'force_leave' : self.force_disconnect,
-                'ip' : self.ip_hash}
+                'ip' : self.ip_hash,
+                'id' : self.user_id}
     
     def ban_user(self, ip):
         s.blacklist.append(ip)
         
         for user in s.threads:
-            if user.address[0] == ip:
+            if user.ip_hash == ip:
+                user.close()
                 user.client.close()
     
     def unban_user(self, ip):
@@ -354,8 +365,7 @@ class Client(threading.Thread):
         except:
             self.close()
             self.client.close()
-            log(self.address[0] + ' died late.')
-            del self
+            log(self.ip_hash + ' died late.')
     
     def send_broadcast(self, name):
         message = 'broadcast "{0}"'.format(name)
@@ -368,6 +378,9 @@ class Client(threading.Thread):
     def close(self):
         for plugin in self.plugins:
             s.plugins[plugin].lost_user(self.user_id)
+        
+        del self.plugins
+        self.remove_self = True
 
 def log(string):
     string = str(string)

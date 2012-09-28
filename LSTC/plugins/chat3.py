@@ -38,7 +38,7 @@ DFGHJKLZXCVBNM'
         self.load_list()
         
         # Allow logging/debug mode?
-        self.debug = 1
+        self.debug = 0
         
         # Help Desk Messages, not finished.
         self.help_desk = {'help': '''This is the help screen. These
@@ -99,6 +99,9 @@ categories available: basic, channel, mod, owner''',
     def server_message(self, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
         log('global', message)
+        
+        to_delete = []
+        i = 0
         for user_id in self.users:
             try:
                 # Update the sensor value for 'chat' to 'message'.
@@ -113,12 +116,20 @@ categories available: basic, channel, mod, owner''',
             except Exception:
                 # If there is an error for some reason, then remove
                 # them so it doesn't cause problems later.
-                self.lost_user(user_id)
+                to_delete.append(i)
+             
+            i += 1
+         
+        for i in to_delete:
+            self.lost_user(i)
     
     # channel_message sends a message to all those in a channel.
     def channel_message(self, channel, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
         log(channel, message)
+        
+        to_delete = []
+        i = 0
         for user_id in self.users:
             try:
                 if channel in self.users[user_id].channels:
@@ -127,11 +138,19 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_broadcast('_chat_update')
             
             except Exception:
-                self.lost_user(user_id)
+                to_delete.append(i)
+            
+            i += 1
+         
+        for i in to_delete:
+            self.lost_user(i)
     
     # user_message sends a message to a specific user.
     def user_message(self, name, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
+        
+        to_delete = []
+        i = 0
         log('user_messages', message)
         for user_id in self.users:
             try:
@@ -141,8 +160,13 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_broadcast('_chat_update')
                     break
             
-            except KeyError:
-                self.lost_users(user_id)
+            except Exception:
+                to_delete.append(i)
+            
+            i += 1
+         
+        for i in to_delete:
+            self.lost_user(i)
     
     
     # Account management
@@ -248,6 +272,10 @@ class User(object):
         
         self.dead = False # Don't send to me if dead.
         self.channel = None # The "current" channel.
+        
+        message = "{0} is known as {1}.".format(self.ip,
+                                                function['id'])
+        log('chat_user_ids', message)
     
     def new_message(self, message):
         
@@ -913,6 +941,30 @@ Message Log: {3}""".format(self.name,
             message = "You do not have access to this."
             self.server.user_message(self.name, message)
     
+    def remove_channel(self, channel_name):
+        channel = self.server.channel_data[channel_name]
+        if self.auth_name in channel['ranked']:
+            channel_level = channel['ranked'][self.auth_name]
+        
+        else:
+            channel_level = '-'
+        
+        if channel_level in '^*~' or self.server_level in '*~':
+            for user_id in self.server.users:
+                user = self.server.users[user_id]
+                if channel_name in user.channels:
+                    user.channels.remove(channel_name)
+            
+            del self.server.channel_data[channel_name]
+            
+            message = "{0} has been deleted."
+            message = message.format(channel_name)
+            self.server.user_message(self.name, message)
+        
+        else:
+            message = "You do not have access to this."
+            self.server.user_message(self.name, message)
+    
     # Advanced User Commands
     
     def whisper(self, to_user, message):
@@ -988,7 +1040,6 @@ Message Log: {3}""".format(self.name,
     
     def censor(self, raw_message):
         message = raw_message.split(' ')
-        print message
         
         new_message = ''
         for word in message:
@@ -997,7 +1048,6 @@ Message Log: {3}""".format(self.name,
             
             new_message += ' ' + word
         
-        print new_message
         return new_message[1:]
     
     def get_help(self, item='help'):
