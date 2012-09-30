@@ -80,8 +80,8 @@ categories available: basic, channel, mod, owner''',
         
             del self.users[user_id]
         
-        except KeyError:
-            pass
+        except KeyError, e:
+            log('chat3_errors', e)
     
     def new_message(self, user_id, message):
         # Received a message from the client.
@@ -113,9 +113,10 @@ categories available: basic, channel, mod, owner''',
                 # Tell the Scratch program that there is a new message.
                 self.users[user_id].send_broadcast('_chat_update')
             
-            except Exception:
+            except Exception, e:
                 # If there is an error for some reason, then remove
                 # them so it doesn't cause problems later.
+                log('chat3_errors', e)
                 to_delete.append(i)
              
             i += 1
@@ -137,7 +138,8 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_sensor('from', channel)
                     self.users[user_id].send_broadcast('_chat_update')
             
-            except Exception:
+            except Exception, e:
+                log('chat3_errors', e)
                 to_delete.append(i)
             
             i += 1
@@ -160,7 +162,8 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_broadcast('_chat_update')
                     break
             
-            except Exception:
+            except Exception, e:
+                log('chat3_errors', e)
                 to_delete.append(i)
             
             i += 1
@@ -278,7 +281,7 @@ class User(object):
         log('chat_user_ids', message)
     
     def new_message(self, message):
-        
+        print message
         if time.time() <= self.temp_silence:
             return
         

@@ -26,7 +26,7 @@ class Server(object):
         for x in xrange(0, 4):
             self.key += str(random.randrange(0, 9))
         
-        log(self.key)
+        log(self.key, fn='server_key')
         
         # Type in the filenames (exclude the extentions) for each
         # plugin you want.
@@ -382,15 +382,15 @@ class Client(threading.Thread):
         del self.plugins
         self.remove_self = True
 
-def log(string):
+def log(string, fn='server'):
     string = str(string)
     print string
     try:
-        log_file = open("server.log", 'a')
+        log_file = open(fn + ".log", 'a')
         log_file.write('\n' + string)
         log_file.close()
     except IOError, e:
-        log_file = open("server.log", 'w')
+        log_file = open(fn + ".log", 'w')
         log_file.write(string)
         log_file.close()
 
