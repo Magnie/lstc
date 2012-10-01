@@ -118,7 +118,7 @@ categories available: basic, channel, mod, owner''',
                 # If there is an error for some reason, then remove
                 # them so it doesn't cause problems later.
                 log('chat3_errors', traceback.format_exc())
-                to_delete.append(i)
+                to_delete.append(user_id)
              
             i += 1
          
@@ -141,7 +141,7 @@ categories available: basic, channel, mod, owner''',
             
             except:
                 log('chat3_errors', traceback.format_exc())
-                to_delete.append(i)
+                to_delete.append(user_id)
             
             i += 1
          
@@ -165,7 +165,7 @@ categories available: basic, channel, mod, owner''',
             
             except:
                 log('chat3_errors', traceback.format_exc())
-                to_delete.append(i)
+                to_delete.append(user_id)
             
             i += 1
          
