@@ -102,7 +102,6 @@ categories available: basic, channel, mod, owner''',
         log('global', message)
         
         to_delete = []
-        i = 0
         for user_id in self.users:
             try:
                 # Update the sensor value for 'chat' to 'message'.
@@ -119,8 +118,6 @@ categories available: basic, channel, mod, owner''',
                 # them so it doesn't cause problems later.
                 log('chat3_errors', traceback.format_exc())
                 to_delete.append(user_id)
-             
-            i += 1
          
         for n in to_delete:
             self.lost_user(n)
@@ -131,7 +128,6 @@ categories available: basic, channel, mod, owner''',
         log('channel_' + channel, message)
         
         to_delete = []
-        i = 0
         for user_id in self.users:
             try:
                 if channel in self.users[user_id].channels:
@@ -142,8 +138,6 @@ categories available: basic, channel, mod, owner''',
             except:
                 log('chat3_errors', traceback.format_exc())
                 to_delete.append(user_id)
-            
-            i += 1
          
         for n in to_delete:
             self.lost_user(n)
@@ -153,7 +147,6 @@ categories available: basic, channel, mod, owner''',
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
         
         to_delete = []
-        i = 0
         log('user_messages', message)
         for user_id in self.users:
             try:
@@ -166,8 +159,6 @@ categories available: basic, channel, mod, owner''',
             except:
                 log('chat3_errors', traceback.format_exc())
                 to_delete.append(user_id)
-            
-            i += 1
          
         for n in to_delete:
             self.lost_user(n)
