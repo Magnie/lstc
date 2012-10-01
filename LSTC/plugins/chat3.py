@@ -4,6 +4,7 @@
 import threading
 import random
 import cPickle
+import traceback
 
 from time import strftime
 import time
@@ -113,21 +114,21 @@ categories available: basic, channel, mod, owner''',
                 # Tell the Scratch program that there is a new message.
                 self.users[user_id].send_broadcast('_chat_update')
             
-            except Exception, e:
+            except:
                 # If there is an error for some reason, then remove
                 # them so it doesn't cause problems later.
-                log('chat3_errors', e)
+                log('chat3_errors', traceback.format_exc())
                 to_delete.append(i)
              
             i += 1
          
-        for i in to_delete:
-            self.lost_user(i)
+        for n in to_delete:
+            self.lost_user(n)
     
     # channel_message sends a message to all those in a channel.
     def channel_message(self, channel, message):
         message = '[{0}] {1}'.format(strftime('%H:%M:%S'), message)
-        log(channel, message)
+        log('channel_' + channel, message)
         
         to_delete = []
         i = 0
@@ -138,14 +139,14 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_sensor('from', channel)
                     self.users[user_id].send_broadcast('_chat_update')
             
-            except Exception, e:
-                log('chat3_errors', e)
+            except:
+                log('chat3_errors', traceback.format_exc())
                 to_delete.append(i)
             
             i += 1
          
-        for i in to_delete:
-            self.lost_user(i)
+        for n in to_delete:
+            self.lost_user(n)
     
     # user_message sends a message to a specific user.
     def user_message(self, name, message):
@@ -162,14 +163,14 @@ categories available: basic, channel, mod, owner''',
                     self.users[user_id].send_broadcast('_chat_update')
                     break
             
-            except Exception, e:
-                log('chat3_errors', e)
+            except:
+                log('chat3_errors', traceback.format_exc())
                 to_delete.append(i)
             
             i += 1
          
-        for i in to_delete:
-            self.lost_user(i)
+        for n in to_delete:
+            self.lost_user(n)
     
     
     # Account management
