@@ -56,6 +56,7 @@ self.plugins[plugin] = plugins.{0}.Server()
         # Shut down plugins.
         for plugin in self.plugins:
             plugin = self.plugins[plugin]
+            plugin.disconnect()
             plugin.running = False
             plugin.join()
     
@@ -67,7 +68,10 @@ self.plugins[plugin] = plugins.{0}.Server()
     
     def reload_plugin(self, name):
         if name in self.plugins:
+            # Shut down the plugin
             self.plugins[name].disconnect()
+            
+            # import the new version and start up that server.
             exec("""import plugins.{0}
 self.plugins[name] = plugins.{0}.Server()
 """.format(name))
@@ -193,7 +197,8 @@ class Client(object):
         # a ban list.
         return {'broadcast' : self.send_broadcast,
                 'sensor-update' : self.send_sensor,
-                'ip-hash' : self.ip_hash}
+                'ip-hash' : self.ip_hash,
+                'user-id' : self.user_id}
     
     def send_broadcast(self, message):
         message = 'broadcast "{0}"'.format(message)
@@ -203,7 +208,7 @@ class Client(object):
         try:
             self.socket.send(message)
         
-        except:
+        except: # TODO: Disconnect user if message fails.
             pass
     
     def send_sensor(self, name, value):
@@ -214,7 +219,7 @@ class Client(object):
         try:
             self.socket.send(message)
         
-        except:
+        except: # TODO: Disconnect user if message fails.
             pass
     
 def dict_from_flat_generator(gen):
