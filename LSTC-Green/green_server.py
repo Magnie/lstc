@@ -30,6 +30,7 @@ class Server(object):
         
         # Store plugin data/modules here.
         self.plugins = {}
+        self.plugin_bans = {}
         
         # Load each plugin
         for plugin in load_plugins:
@@ -39,6 +40,9 @@ self.plugins[plugin] = plugins.{0}.Server()
 """).format(plugin)
             # Start the plugin thread.
             self.plugins[plugin].start()
+            
+            # Create a plugin ban list
+            self.plugin_bans[plugin] = set([])
     
     def _run(self):
         """When the Server is started"""
@@ -143,7 +147,7 @@ class Client(object):
     def deal_with(self, raw_message):
         # Format: :[command] [plugin] [message]
         # Example: :> template reset
-        # Check if it's server data
+        # Check if it's server specific data
         if raw_message[0] != ':':
             return
         
