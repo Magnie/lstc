@@ -40,3 +40,17 @@ class User(object):
     
     def new_message(message):
         pass
+
+class Universe(object):
+    
+    def __init__(self):
+        self.name = "N/A"
+        
+        # Default Settings
+        self.max_players = 8
+        self.max_ships = 12
+        self.max_bullets = 12
+        
+        self.max_planets = 2
+        
+        self.max_objects = 26

@@ -115,15 +115,20 @@ p.start()'''.format(plugin))
                     else:
                         log(str(c.ip_hash) + ' attempted to connected.')
                         c.close()
+                        c.client.close()
                 
+                '''
                 i = 0
                 to_delete = []
                 for thread in self.threads:
                     if thread.remove_self:
                         to_delete.append(i)
+                    
+                    i += 1
                 
                 for i in to_delete:
                     self.threads.pop(i)
+                '''
             
         except KeyboardInterrupt:
             pass
@@ -370,7 +375,13 @@ class Client(threading.Thread):
     def send_broadcast(self, name):
         message = 'broadcast "{0}"'.format(name)
         message = self.add_length(message)
-        self.client.send(message)
+        try:
+            self.client.send(message)
+        
+        except:
+            self.close()
+            self.client.close()
+            log(self.ip_hash + ' died late.')
     
     
     # Closing functions

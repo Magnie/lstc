@@ -120,7 +120,7 @@ categories available: basic, channel, mod, owner''',
                 to_delete.append(user_id)
          
         for n in to_delete:
-            self.lost_user(n)
+            self.users[n].part_channel(channel)
     
     # channel_message sends a message to all those in a channel.
     def channel_message(self, channel, message):
@@ -140,7 +140,7 @@ categories available: basic, channel, mod, owner''',
                 to_delete.append(user_id)
          
         for n in to_delete:
-            self.lost_user(n)
+            self.users[n].part_channel(channel)
     
     # user_message sends a message to a specific user.
     def user_message(self, name, message):
@@ -161,7 +161,7 @@ categories available: basic, channel, mod, owner''',
                 to_delete.append(user_id)
          
         for n in to_delete:
-            self.lost_user(n)
+            self.users[n].part_channel(channel)
     
     
     # Account management

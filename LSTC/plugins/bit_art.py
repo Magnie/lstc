@@ -109,8 +109,8 @@ class Server(threading.Thread):
         #if uid not in self.placers:
         #    return
         
-        pos_x = self.size * round(pos_x / float(size))
-        pos_y = self.size * round(pos_y / float(size))
+        pos_x = self.size * round(int(pos_x) / float(self.size))
+        pos_y = self.size * round(int(pos_y) / float(self.size))
         
         if pos_y not in self.art:
             self.art[pos_y] = {}

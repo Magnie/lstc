@@ -42,4 +42,4 @@ class User(object):
         self.send_sensor = self.functions['send_sensor']
     
     def new_message(self, message):
-        
+        pass

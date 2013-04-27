@@ -71,15 +71,23 @@ self.plugins[plugin] = plugins.{0}.Server()
         self.threads.append(new)
     
     def reload_plugin(self, name):
+        """Restart a plugin to run the most recent version. Useful for updating
+        plugins without restarting the server."""
         if name in self.plugins:
+            plugin = self.plugins[name]
             # Shut down the plugin
-            self.plugins[name].disconnect()
+            plugin.disconnect()
             
             # import the new version and start up that server.
             exec("""import plugins.{0}
 self.plugins[name] = plugins.{0}.Server()
 """.format(name))
-            self.plugins[name].start()
+            plugin.start()
+            
+            for client in self.threads:
+                client = self.threads[client]
+                if name in client.plugins:
+                    plugin.new_user(client.user_id, client.functions())
         
 
 class Client(object):
@@ -88,6 +96,8 @@ class Client(object):
         
         self.socket = socket
         self.addr = address
+        
+        self.keep_alive = True
         
         if self.addr[0] in s.blacklist:
             self.socket.close()
@@ -111,7 +121,8 @@ class Client(object):
         self._run()
     
     def _run(self):
-        """When the Client is started"""
+        """When the Client is started.
+        Waits for messages from clients."""
         self.running = True
         
         while self.running:
@@ -129,22 +140,26 @@ class Client(object):
             
             # Divide the messages if there are more than one.
             messages = s.parser.get_messages(data)
-            print messages
             for message in messages:
-                print message
                 # Parse message
                 sent = s.parser.parse(message)
                 
                 for i in sent:
-                    print i
                     # Send to another function.
                     self.deal_with(i)
+            
+            if not self.keep_alive:
+                self.running = False
+                break
         
         # Close the connection.
         print self.ip_hash + ' has disconnected.'
         self.socket.close()
     
     def deal_with(self, raw_message):
+        """
+        Parses a raw message from Scratch and puts it into a usable format.
+        """
         # Format: :[command] [plugin] [message]
         # Example: :> template reset
         # Check if it's server specific data
@@ -156,11 +171,8 @@ class Client(object):
         request = message[0][1:]
         args = message[1:]
         
-        print request, args
-        
         # Use a plugin.
         if request == '+':
-            print args[0], 'added.'
             if args[0] not in self.plugins:
                 self.plugins.add(args[0])
                 
@@ -170,7 +182,6 @@ class Client(object):
         
         # Remove a plugin.
         elif request == '-':
-            print args[0], 'removed.'
             if args[0] in self.plugins:
                 self.plugins.remove(args[0])
                 
@@ -184,27 +195,41 @@ class Client(object):
         
         # Forward to plugin.
         elif request == '>':
-            print args[0], args[1:]
             if args[0] in self.plugins:
                 # Put the full message together
                 forward = ' '.join(args[1:])
                 
                 # Forward it to the plugin.
                 plugin = s.plugins[args[0]]
-                gevent.spawn(plugin.new_message,
-                             self.user_id,
-                             forward)
-                print 'Sent'
+                try:
+                    gevent.spawn(plugin.new_message,
+                                 self.user_id,
+                                 forward)
+                
+                except Exception:
+                    pass
     
     def functions(self):
+        """Returns a dictionary of functions that can be used by plugins."""
         # Allow plugins to send broadcasts, messages, and implement
         # a ban list.
         return {'broadcast' : self.send_broadcast,
                 'sensor-update' : self.send_sensor,
                 'ip-hash' : self.ip_hash,
-                'user-id' : self.user_id}
+                'user-id' : self.user_id,
+                'leave-plugin' : self.leave_plugin}
+    
+    def leave_plugin(self, plugin):
+        """Stop the client from using this plugin anymore."""
+        if plugin in self.plugins:
+            self.plugins.remove(plugin)
+            
+            # Tell plugin that this user has disconnected.
+            plugin = s.plugins[plugin]
+            plugin.lost_user(self.user_id)
     
     def send_broadcast(self, message):
+        """Sends a broadcast to Scratch."""
         message = 'broadcast "{0}"'.format(message)
         # Add the length to the beginning of the message.
         message = s.parser.add_length(message)
@@ -216,6 +241,7 @@ class Client(object):
             pass
     
     def send_sensor(self, name, value):
+        """Sends a sensor-update to Scratch."""
         message = 'sensor-update "{0}" "{1}"'.format(name, value)
         # Add the length to the beginning of the message.
         message = s.parser.add_length(message)
@@ -352,5 +378,5 @@ class ScratchParser(object):
         return (a.tostring() + cmd)
 
 if __name__ == "__main__":
-    s = Server(['template']) 
+    s = Server(['template', 'chat4']) 
     s._run()
