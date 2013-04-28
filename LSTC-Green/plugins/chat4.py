@@ -41,6 +41,8 @@ class Server(threading.Thread):
         self.account_data = {}
         
         self.banned_accounts = set([])
+        
+        self.chat_version = 4.0;
     
     def run(self):
         pass
@@ -125,6 +127,9 @@ class Client(object):
         self.name_change = True
         self.char_chat = False
         
+        # Report log for sending a full report.
+        self.report_log = []
+        
         # Character Positions
         self.x_pos = 0
         self.x_vel = 0
@@ -135,8 +140,8 @@ class Client(object):
         # Access to server class functions
         self.server = server
         
-        message = "Welcome to Chat.PY 4.0! If you are seeing this\
-then you are connected to the server!"
+        message = ("Welcome to Chat.PY 4.0! If you are seeing this "
+                   "then you are connected to the server!")
         self.send_sensor('message', message)
         self.send_broadcast('new_message')
     
@@ -256,6 +261,12 @@ then you are connected to the server!"
             
             else:
                 self.char_chat = False
+        
+        # Report abusive message/conversation
+        elif cmd == 'report':
+            if args:
+                # args = channel
+                self.cmd_report_abuse(args)
         
         # Server moderation
         elif cmd == 'server':
@@ -559,6 +570,24 @@ then you are connected to the server!"
         channel_data['ranked'][user] += 1
     
     # Server moderation commands
+    def cmd_report_abuse(self, message):
+        # Report this line as abusive or against the rules.
+        
+        report_type, reported_msg = message.split(':', 1)
+        if report_type == 'start':
+            date = strftime('%D/%M/%Y %h:%m:%s')
+            self.report_log = ['Report starting at {0}.'.format(date)]
+            self.report_log.append(message)
+        
+        elif report_type == 'end':
+            date = strftime('%D/%M/%Y %h:%m:%s')
+            self.report_log.append(message)
+            self.report_log.append('Report ending at {0}'.format(date))
+        
+        else:
+            self.report_log.append(message)
+        
+        return
     
     def cmd_server_kick(self, user):
         # Force a user to leave the server/plugin.
@@ -576,7 +605,9 @@ then you are connected to the server!"
     
     def cmd_server_forcekill(self, user):
         # Force a user to disconnect from the server in whole.
-        pass
+        if not self.test_srank(1): return
+        
+        self.functions['force-kill']()
     
     def cmd_server_promote(self, user, mod):
         # Increase a user's rank on the server.

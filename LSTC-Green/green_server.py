@@ -115,6 +115,9 @@ class Client(object):
         # Increment to keep from clashing.
         s.user_id += 1
         
+        # Can be used by plugins to force clients to update.
+        self.client_version = 0;
+        
         print self.ip_hash + ' has connected.'
         
         # Start the main part of the client.
@@ -193,6 +196,15 @@ class Client(object):
         elif request == '*': # TODO: Add password.
             pass
         
+        # Can be used for latency.
+        elif request == 'ping':
+            self.send_broadcast(':pong')
+        
+        # Update client version number
+        elif request == 'version':
+            if isinstance(args[0], float) or isinstance(args[0], int):
+                self.client_version = args[0]
+        
         # Forward to plugin.
         elif request == '>':
             if args[0] in self.plugins:
@@ -217,7 +229,12 @@ class Client(object):
                 'sensor-update' : self.send_sensor,
                 'ip-hash' : self.ip_hash,
                 'user-id' : self.user_id,
-                'leave-plugin' : self.leave_plugin}
+                'version' : self.client_version,
+                'leave-plugin' : self.leave_plugin,
+                'force-kill' : self.force_kill}
+    
+    def force_kill(self):
+        self.keep_alive = False;
     
     def leave_plugin(self, plugin):
         """Stop the client from using this plugin anymore."""
