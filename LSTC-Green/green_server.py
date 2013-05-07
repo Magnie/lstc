@@ -28,21 +28,27 @@ class Server(object):
         self.whitelist = []
         self.blacklist = []
         
-        # Store plugin data/modules here.
+        # Store plugin objects here.
         self.plugins = {}
         self.plugin_bans = {}
         
         # Load each plugin
         for plugin in load_plugins:
-            exec("""
+            try:
+                exec("""
 import plugins.{0}
 self.plugins[plugin] = plugins.{0}.Server()
 """).format(plugin)
-            # Start the plugin thread.
-            self.plugins[plugin].start()
+
+                # Start the plugin thread.
+                self.plugins[plugin].start()
             
-            # Create a plugin ban list
-            self.plugin_bans[plugin] = set([])
+                # Create a plugin ban list
+                self.plugin_bans[plugin] = set([])
+            
+            except Exception, e:
+                print '{0} broke and gave error: {1}'.format(plugin, e)
+            
     
     def _run(self):
         """When the Server is started"""
@@ -66,7 +72,7 @@ self.plugins[plugin] = plugins.{0}.Server()
     
     def handler(socket, address): # Might use this for blacklists.
         """The handle for new connections"""
-        new = Client(socket, address)
+        new = Client(socket, address, self)
         new.start()
         self.threads.append(new)
     
@@ -156,6 +162,9 @@ class Client(object):
                 break
         
         # Close the connection.
+        for plugin in self.plugins:
+            self.leave_plugin(plugin)
+        
         print self.ip_hash + ' has disconnected.'
         self.socket.close()
     
@@ -231,10 +240,23 @@ class Client(object):
                 'user-id' : self.user_id,
                 'version' : self.client_version,
                 'leave-plugin' : self.leave_plugin,
-                'force-kill' : self.force_kill}
+                'force-kill' : self.force_kill,
+                'server-ban' : self.server_ban,
+                'server-unban' : self.server_unban}
     
     def force_kill(self):
+        # Force a user to disconnect.
         self.keep_alive = False;
+    
+    def server_ban(self, ip_hash):
+        # Ban this IP hash.
+        s.blacklist.append(ip_hash) # FIX: Needs to use server, not 's'.
+    
+    def server_unban(self, ip_hash):
+        # Remove than ban on this IP hash.
+        
+        if ip_hash in s.blacklist:
+            s.blacklist.remove(ip_hash) # FIX: Needs to use server, not 's'.
     
     def leave_plugin(self, plugin):
         """Stop the client from using this plugin anymore."""

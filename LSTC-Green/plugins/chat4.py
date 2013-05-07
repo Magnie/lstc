@@ -16,6 +16,8 @@
 # Shunned - 6
 
 import threading
+import cPickle
+import urllib
 
 from time import strftime
 
@@ -23,22 +25,33 @@ class Server(threading.Thread):
     
     def __init__(self):
         threading.Thread.__init__(self)
+        self.owner = 'Magnie'
+        
         self.users = {}
         
         self.ranks = ['Owner', 'Admin', 'Operator', 'Half-Op',
                       'Voice', 'Normal', 'Shunned']
         
-        self.channel_data = {'scratch' : {'ranked' : {'Magnie' : 0},
-                                          'whitelist' : ['Magnie'],
-                                          'blacklist' : [],
-                                          'mutelist': [],
-                                          'flags' : 'bp',
-                                          'motd' : 'Welcome!'}} 
+        self.channel_data = load_data('channels.txt')
+        
+        if not self.channel_data:
+            self.channel_data = {'scratch' : {'ranked' : {self.owner : 0},
+                                              'whitelist' : [self.owner],
+                                              'blacklist' : [],
+                                              'mutelist': [],
+                                              'flags' : 'bp',
+                                              'motd' : 'Welcome!'}}
+            save_data('channels.txt', self.channel_data)
+        
+        
         self.channel_cache = {} # channel : [users]
         for channel in self.channel_data:
             self.channel_cache[channel] = []
         
-        self.account_data = {}
+        self.account_data = load_data('accounts.txt')
+        if not self.account_data:
+            self.account_data = {self.owner : 0}
+            save_data('accounts.txt', self.account_data)
         
         self.banned_accounts = set([])
         
@@ -53,8 +66,10 @@ class Server(threading.Thread):
     def lost_user(self, user_id):
         user = self.users[user_id]
         channels = user.channel_ranks
-        for channel in channels:
+        temp_channels = (channels)
+        for channel in temp_channels:
             user.cmd_part(channel)
+        
         del self.users[user_id]
     
     def new_message(self, user_id, message):
@@ -69,6 +84,12 @@ class Server(threading.Thread):
         for user_id in self.users:
             if self.users[user_id].name == name:
                 return user_id
+        
+        return None
+    
+    def kill_user(self, name):
+        user_id = self.get_id(name)
+        self.users[user_id].functions['force-kill']()
     
     # Message functions
     
@@ -107,6 +128,13 @@ class Server(threading.Thread):
         to_user.send_sensor('message', message)
         # Tell client that there is a new message.
         to_user.send_broadcast('new_message')
+    
+    # Avatar functions
+    def update_avatar(self, channel, avatar):
+        # Will send update to all users in a channel that have avatar chat
+        # enabled.
+        pass
+
 
 class Client(object):
     
@@ -122,6 +150,7 @@ class Client(object):
         self.logged_in = False
         self.logged_in_name = None
         
+        self.channels = []
         self.channel = 'none'
         
         self.name_change = True
@@ -132,10 +161,7 @@ class Client(object):
         
         # Character Positions
         self.x_pos = 0
-        self.x_vel = 0
-        
         self.y_pos = 0
-        self.y_vel = 0
         
         # Access to server class functions
         self.server = server
@@ -207,6 +233,14 @@ class Client(object):
             else: # /kick [user]
                 self.cmd_kick(self.channel, args[0])
         
+        elif cmd == 'flags':
+            args = args.split(' ', 1)
+            if len(args) == 2: # /flags [channel] [options]
+                self.cmd_flags(args[0], args[1])
+            
+            else: # /flags [options]
+                self.cmd_flags(self.channel, args[0])
+        
         elif cmd == 'ban':
             args = args.split(' ', 1)
             if len(args) == 2:
@@ -229,19 +263,19 @@ class Client(object):
             args = args.split(' ', 2)
             if len(args) == 3:
                 # args = [channel, username, mod]
-                self.cmd_promote(args[0], args[1])
+                self.cmd_promote(args[0], args[1], args[2])
             
             else:
-                self.cmd_promote(self.channel, args[0])
+                self.cmd_promote(self.channel, args[0], args[1])
         
         elif cmd == 'demote':
             args = args.split(' ', 2)
             if len(args) == 3:
                 # args = [channel, username, mod]
-                self.cmd_demote(args[0], args[1])
+                self.cmd_demote(args[0], args[1], args[2])
             
             else:
-                self.cmd_demote(self.channel, args[0])
+                self.cmd_demote(self.channel, args[0], args[1])
         
         elif cmd == 'list':
             if args:
@@ -299,7 +333,8 @@ class Client(object):
             
             elif sub == 'promote':
                 args = args.split(' ', 2)
-                if len(args) == 3:
+                if len(args) == 2:
+                    # args = [username, mod]
                     self.cmd_server_promote(args[0], args[1])
                 
                 else:
@@ -307,7 +342,8 @@ class Client(object):
             
             elif sub == 'demote':
                 args = args.split(' ', 2)
-                if len(args) == 3:
+                if len(args) == 2:
+                    # args = [username, mod]
                     self.cmd_server_demote(args[0], args[1])
                 
                 else:
@@ -339,6 +375,8 @@ class Client(object):
         return False
     
     def test_crank(self, channel, rank):
+        #if self.test_srank(1): return True
+        
         if not self.logged_in:
             return False
         
@@ -348,16 +386,22 @@ class Client(object):
         return False
     
     # Command functions
+    # Avatar Chat Functions
+    def cmd_update_location(self, x, y):
+        # Updates the position of the avatar and sends it to everyone.
+        self.x_pos = x
+        self.y_pos = y
+    
     # Basic chat commands.
     
     def cmd_send(self, channel, message):
         # Send a message to a channel
         if channel not in self.channel_ranks:
-            self.response_error('not in channel')
+            self.response_user('not in channel')
             return
         
         if self.channel_ranks[channel] == 'mute':
-            self.response_error('muted')
+            self.response_user('muted')
             return
             
         full_message = '{0}: {1}'.format(self.name, message)
@@ -391,13 +435,13 @@ class Client(object):
         # Check if the whitelist applies.
         if 'w' in channel_data['flags']:
             if self.logged_in_name not in channel_data['whitelist']:
-                self.response_error(message_type='whitelist')
+                self.response_user(message_type='whitelist')
                 return
         
         # Check if the blacklist applies.
         if 'b' in channel_data['flags']:
             if self.name in channel_data['blacklist']:
-                self.response_error(message_type='blacklist')
+                self.response_user(message_type='blacklist')
                 return
         
         if self.logged_in_name in channel_data['ranked']:
@@ -409,6 +453,10 @@ class Client(object):
         
         user_id = self.functions['user-id']
         self.server.channel_cache[channel].append(user_id)
+        self.channels.append(channel)
+        
+        self.server.message_user('ServerNinja', self.name,
+                                 channel_data['motd'])
         
         self.send_sensor('channel', channel)
         self.send_broadcast('joined')
@@ -419,6 +467,7 @@ class Client(object):
         del self.channel_ranks[channel]
         user_id = self.functions['user-id']
         self.server.channel_cache[channel].remove(user_id)
+        self.channels.remove(channel)
         
         self.response_common(channel, 'part', self.name, channel)
         
@@ -437,7 +486,11 @@ class Client(object):
         
         # Check if they are allowed to change their name.
         if not self.name_change:
-            self.response_error(message_type='name disabled')
+            self.response_user(message_type='name disabled')
+            return
+        
+        # Check if the name is already in use.
+        if self.server.get_id(new_name):
             return
         
         for channel in self.channel_ranks:
@@ -452,7 +505,7 @@ class Client(object):
         # Authenticate with a Scratch account
         # Make sure the user isn't already logged in.
         if self.test_srank(4):
-            self.response_error(message_type='logged in')
+            self.response_user(message_type='logged in')
             return
         
         details = {'username' : scratch_user,
@@ -468,14 +521,14 @@ class Client(object):
         
         if result == ' \r\nfalse':
             # Login failed.
-            self.response_error(message_type='login failed')
+            self.response_user(message_type='login failed')
             return
         
         else:
             result = result.split(':')
             if result[2] == 'blocked' or result[2] in banned:
                 # Banned by the Scratch Team or banned just for this.
-                self.response_error(message_type='login failed')
+                self.response_user(message_type='login failed')
                 return
             
             else:
@@ -491,13 +544,24 @@ class Client(object):
                 else:
                     # If the account doesn't exist, create it.
                     accounts[scratch_user] = 4
-                    self.server_rank = 4
+                    save_data('accounts.txt', self.server.account_data)
+                
+                self.server_rank = accounts[scratch_user]
+                for channel in self.channels:
+                    channel_data = self.server.channel_data[channel]
+                    if self.logged_in_name in channel_data['ranked']:
+                        name = channel_data['ranked'][self.logged_in_name]
+                        self.channel_ranks[channel] = name
+                
+                self.response_user('login successful')
     
     def cmd_logout(self):
         # Deauthenticate
         self.logged_in = False
         self.logged_in_name = None
         self.server_rank = 5
+        
+        self.response_user('logout')
     
     def cmd_whois(self, user):
         for client in self.server.users:
@@ -506,11 +570,21 @@ class Client(object):
                 message = 'Whois on {0}: \n'
                 message += 'Logged in: {1} \n'
                 if client.logged_in:
-                    message += 'Logged in as: {2}'
-                    message += 'Server rank: {3}'
+                    server_rank_name = self.server.ranks[client.server_rank]
+                    message += 'Logged in as: {2}\n'
+                    message += 'Server rank: {3} - {4}\n'
+                    message += 'Channel Ranks: \n'
+                    for channel in self.channel_ranks:
+                        crank = self.channel_ranks[channel]
+                        crank_name = self.server.ranks[crank]
+                        message += '  {0}: {1} - {2}\n'.format(channel,
+                                                             crank,
+                                                             crank_name)
+                    
                     message = message.format(user, client.logged_in,
                                              client.logged_in_name,
-                                             client.server_rank)
+                                             client.server_rank,
+                                             server_rank_name)
                 
                 else:
                     message = message.format(user, client.logged_in)
@@ -518,6 +592,23 @@ class Client(object):
                 self.server.message_user(user, self.name, message)
     
     # Channel moderation commands
+    def cmd_motd(self, channel, motd):
+        # Change the channel Message of the Day.
+        if not self.test_crank(3): return
+        
+        self.server.channel_data[channel]['motd'] = motd
+        
+        self.response_common('motd')
+    
+    def cmd_flags(self, channel, flags):
+        if not self.test_crank(3) and not self.test_srank(1): return
+        
+        if 'p' in flags and not self.test_srank(1):
+            flags = flags.replace('p', '')
+        
+        self.server.channel_data[channel]['flags'] = flags
+        
+        self.response_common('flags', flags)
     
     def cmd_kick(self, channel, user):
         # Force a user to leave a channel.
@@ -526,6 +617,8 @@ class Client(object):
         user_id = self.server.get_id(user)
         if user_id in self.server.channel_cache[channel]:
             self.server.users[user_id].cmd_part(channel)
+        
+        self.response_common('kick', user, self.name)
     
     def cmd_ban(self, channel, user):
         # Keep a user from entering this channel.
@@ -536,6 +629,8 @@ class Client(object):
         user_id = self.server.get_id(user)
         if user in self.server.channel_cache[channel]:
             self.server.users[user_id].cmd_part(channel)
+        
+        self.response_common('ban', user, self.name)
     
     def cmd_unban(self, channel, user):
         # Unban a user from a channel.
@@ -551,10 +646,8 @@ class Client(object):
         if user not in channel_data['ranked']:
             channel_data['ranked'][user] = 5
         
-        if channel_data['ranked'][user] <= 2:
-            return
-        
-        channel_data['ranked'][user] -= 1
+        if channel_data['ranked'][user] != 0:
+            channel_data['ranked'][user] -= 1
     
     def cmd_demote(self, channel, user):
         # Decrease a user's rank.
@@ -564,10 +657,8 @@ class Client(object):
         if user not in channel_data['ranked']:
             channel_data['ranked'][user] = 5
         
-        if channel_data['ranked'][user] <= 2:
-            return
-        
-        channel_data['ranked'][user] += 1
+        if channel_data['ranked'][user] != len(self.server.ranks) - 1:
+            channel_data['ranked'][user] += 1
     
     # Server moderation commands
     def cmd_report_abuse(self, message):
@@ -583,6 +674,8 @@ class Client(object):
             date = strftime('%D/%M/%Y %h:%m:%s')
             self.report_log.append(message)
             self.report_log.append('Report ending at {0}'.format(date))
+            
+            save_log('report_{0}'.format(date), self.report_log)
         
         else:
             self.report_log.append(message)
@@ -595,27 +688,47 @@ class Client(object):
         
         self.functions['leave-plugin']('chat4')
     
-    def cmd_server_ban(self, user):
+    def cmd_server_ban(self, ip_hash):
         # Ban a user from using this server/plugin.
-        pass
+        if not self.test_srank(1): return
+        
+        self.functions['server-ban'](ip_hash)
     
-    def cmd_server_unban(self, user):
+    def cmd_server_unban(self, ip_hash):
         # Unban a user.
-        pass
+        if not self.test_srank(1): return
+        
+        self.functions['server-unban'](ip_hash)
     
     def cmd_server_forcekill(self, user):
         # Force a user to disconnect from the server in whole.
         if not self.test_srank(1): return
         
-        self.functions['force-kill']()
+        self.server.kill_user(user)
     
     def cmd_server_promote(self, user, mod):
         # Increase a user's rank on the server.
-        pass
+        if not self.test_srank(1): return
+        
+        if user in self.server.account_data:
+            self.server.account_data[user] -= mod
+            
+            if self.server.account_data[user] < 0:
+                self.server.account_data[user] = 0
+            
+            self.server_rank = self.server.account_data[user]
     
     def cmd_server_demote(self, user, mod):
         # Decrease a user's rank on the server.
-        pass
+        if not self.test_srank(1): return
+        
+        if user in self.server.account_data:
+            self.server.account_data[user] += mod
+            
+            if self.server.account_data[user] > (len(self.server.ranks) - 1):
+                self.server.account_data[user] = len(self.server.ranks) - 1
+            
+            self.server_rank = self.server.account_data[user]
     
     def cmd_server_nick(self, user, new_name):
         # Force a user to change names.
@@ -654,11 +767,12 @@ class Client(object):
     
     def cmd_list(self, channel):
         # List who is in the channel.
-        users = self.server.channel_cache[channel]
-        users = ', '.join(users)
-        message = 'User\'s in {0}: '.format(channel, users)
+        cache = self.server.channel_cache[channel]
+        # For user id in cache, append the name of that user.
+        users = ', '.join([self.server.users[u].name for u in cache])
+        message = 'User\'s in {0}: {1}'.format(channel, users)
         
-        message = message[:2] + '.'
+        message += '.'
         self.server.message_user('ServerNinja', self.name, message)
     
     def cmd_help(self):
@@ -670,12 +784,22 @@ class Client(object):
         return message
     
     # Common messages
-    def response_error(self, message_type=None):
+    def response_user(self, message_type=None):
         """Return a common error message."""
         
+        msg_types = {None : 'Undefined error/message.',
+                     'access denied' : 'You do not have '
+                                       'access to this feature.',
+                     'not in channel' : 'You are not in that channel.',
+                     'name disabled' : 'You are not allowed to '
+                                       'change your name.'
+                     }
+        
         if message_type == None:
-            message = 'Undefined error.'
-            
+            message = 'Undefined error/message.'
+        
+        # Error Messages
+          
         # Access denied
         elif message_type == 'access denied':
             message = 'You do not have access to this feature.'
@@ -704,11 +828,18 @@ class Client(object):
         elif message_type == 'blacklist':
             message = 'You are blacklisted.'
         
+        # Already logged in
         elif message_type == 'logged in':
             message = 'You are already logged in.'
         
+        # Failed login
         elif message_type == 'login failed':
             message = 'Login failed.'
+        
+        # Other messages
+        
+        elif message_type == 'login successful':
+            message = 'You have logged in successfully.'
         
         self.server.message_user('ServerNinja', self.name, message)
     
@@ -750,6 +881,14 @@ class Client(object):
         elif message_type == 'ban':
             message = '{0} has been banned by {1}.'.format(*args)
         
+        # MOTD changed
+        elif message_type == 'motd':
+            message = 'MOTD has been updated.'
+        
+        # Flags changed
+        elif message_type == 'flags':
+            message = 'Flags have been updated to: {0}'.format(*args)
+        
         # Muted
         elif message_type == 'part':
             message = '{0} has been muted by {1}.'.format(*args)
@@ -759,3 +898,36 @@ class Client(object):
             message = '{0} was just owned by {1}.'.format(*args)
         
         self.server.message_channel(channel, message)
+
+def save_data(fn, data):
+    data_file = open(fn, 'w')
+    cPickle.dump(data, data_file)
+    data_file.close()
+
+def load_data(fn):
+    try:
+        data_file = open(fn, 'r')
+        data = cPickle.load(data_file)
+        data_file.close()
+        return data
+    
+    except IOError, e:
+        data_file = open(fn, 'w')
+        data_file.close()
+        return False
+
+def save_log(fn, data):
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'w')
+    log_file.write(data)
+    log_file.close()
+
+def append_log(fn, data):
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'w+')
+    log_file.writeline(data)
+    log_file.close()
