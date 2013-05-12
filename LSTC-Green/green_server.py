@@ -11,11 +11,14 @@ from gevent.server import StreamServer
 from gevent import monkey
 monkey.patch_socket()
 
+DEBUG_MODE = True
+
+
 class Server(object):
     
     def __init__(self, load_plugins, port=42001, host='0.0.0.0'):
         #Greenlet.__init__(self)
-        self.stream = StreamServer((host, port), Client)
+        self.stream = StreamServer((host, port), self.handler)
         self.recv_size = 1024
         
         # RSC Parser
@@ -43,7 +46,7 @@ self.plugins[plugin] = plugins.{0}.Server()
                 # Start the plugin thread.
                 self.plugins[plugin].start()
             
-                # Create a plugin ban list
+                # Create a plugin user ban list
                 self.plugin_bans[plugin] = set([])
             
             except Exception, e:
@@ -70,47 +73,57 @@ self.plugins[plugin] = plugins.{0}.Server()
             plugin.running = False
             plugin.join()
     
-    def handler(socket, address): # Might use this for blacklists.
+    def handler(self, socket, address): # Might use this for blacklists.
         """The handle for new connections"""
-        new = Client(socket, address, self)
-        new.start()
-        self.threads.append(new)
+        self.threads.append(Client(socket, address, self))
     
     def reload_plugin(self, name):
         """Restart a plugin to run the most recent version. Useful for updating
         plugins without restarting the server."""
         if name in self.plugins:
-            plugin = self.plugins[name]
             # Shut down the plugin
-            plugin.disconnect()
+            self.plugins[name].disconnect()
+            debug(self.threads)
+            for client in self.threads:
+                if name in client.plugins:
+                    client.plugins.remove(name)
+                
+                debug(client.plugins)
             
             # import the new version and start up that server.
-            exec("""import plugins.{0}
-self.plugins[name] = plugins.{0}.Server()
-""".format(name))
-            plugin.start()
+            try:
+                tmp_plugin = getattr(__import__('plugins.' + name), name)
+                reload(tmp_plugin)
+            except NameError:
+                exec('import plugins.' + name + ' as ' + tmp_plugin)
             
-            for client in self.threads:
-                client = self.threads[client]
-                if name in client.plugins:
-                    plugin.new_user(client.user_id, client.functions())
+            self.plugins[name] = tmp_plugin.Server()
+            self.plugins[name].start()
+            
+            
         
 
 class Client(object):
     
-    def __init__(self, socket, address):
+    def __init__(self, socket, address, server):
         
         self.socket = socket
         self.addr = address
         
-        self.keep_alive = True
+        # This is a complete and total hack, for some reason
+        # Server.handler() won't append it like it's supposed to.
+        server.threads.append(self)
+        debug(server.threads)
         
-        if self.addr[0] in s.blacklist:
+        # Create a "public hash" of the IP. Might need to add a salt.
+        self.ip_hash = hashlib.md5(self.addr[0]).hexdigest()
+        
+        self.keep_alive = True
+        print s.blacklist
+        if self.addr[0] in s.blacklist or self.ip_hash in s.blacklist:
+            print self.ip_hash + ' is banned.'
             self.socket.close()
             return
-        
-        # Create a "public hash" of the IP. Might need to add a seed.
-        self.ip_hash = hashlib.md5(self.addr[0]).hexdigest()
         
         # Stores the plugins in use.
         self.plugins = set([])
@@ -162,8 +175,12 @@ class Client(object):
                 break
         
         # Close the connection.
-        for plugin in self.plugins:
-            self.leave_plugin(plugin)
+        for plugin in list(self.plugins):
+            try:
+                self.leave_plugin(plugin)
+            
+            except Exception, e:
+                print e
         
         print self.ip_hash + ' has disconnected.'
         self.socket.close()
@@ -202,8 +219,8 @@ class Client(object):
                 plugin.lost_user(self.user_id)
         
         # Server plugin reload.
-        elif request == '*': # TODO: Add password.
-            pass
+        elif request == '*' and args[0] == '1234': # TODO: Add password.
+            s.reload_plugin(args[1])
         
         # Can be used for latency.
         elif request == 'ping':
@@ -277,7 +294,7 @@ class Client(object):
             self.socket.send(message)
         
         except: # TODO: Disconnect user if message fails.
-            pass
+            self.socket.close()
     
     def send_sensor(self, name, value):
         """Sends a sensor-update to Scratch."""
@@ -289,7 +306,7 @@ class Client(object):
             self.socket.send(message)
         
         except: # TODO: Disconnect user if message fails.
-            pass
+            self.socket.close()
     
 def dict_from_flat_generator(gen):
     """Convert [key, value, key, value] iterable to dict"""
@@ -415,6 +432,10 @@ class ScratchParser(object):
         a.append(chr((n >>  8) & 0xFF))
         a.append(chr(n & 0xFF))
         return (a.tostring() + cmd)
+
+def debug(string):
+    if DEBUG_MODE:
+        print string
 
 if __name__ == "__main__":
     s = Server(['template', 'chat4']) 

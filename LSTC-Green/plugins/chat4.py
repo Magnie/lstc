@@ -46,7 +46,7 @@ class Server(threading.Thread):
         
         self.channel_cache = {} # channel : [users]
         for channel in self.channel_data:
-            self.channel_cache[channel] = []
+            self.channel_cache[channel] = set([])
         
         self.account_data = load_data('accounts.txt')
         if not self.account_data:
@@ -66,17 +66,20 @@ class Server(threading.Thread):
     def lost_user(self, user_id):
         user = self.users[user_id]
         channels = user.channel_ranks
-        temp_channels = (channels)
-        for channel in temp_channels:
+        for channel in list(channels):
             user.cmd_part(channel)
         
         del self.users[user_id]
     
     def new_message(self, user_id, message):
+        if user_id not in self.users:
+            print "User {0} does not exist on chat4.py".format(user_id)
+            return
         self.users[user_id].new_message(message)
     
     def disconnect(self):
-        pass
+        self.message_server("Plugin is being restarted, please wait five "\
+                            "seconds and then click the green flag.")
     
     # Functions
     
@@ -150,7 +153,7 @@ class Client(object):
         self.logged_in = False
         self.logged_in_name = None
         
-        self.channels = []
+        self.channels = set([])
         self.channel = 'none'
         
         self.name_change = True
@@ -264,18 +267,12 @@ class Client(object):
             if len(args) == 3:
                 # args = [channel, username, mod]
                 self.cmd_promote(args[0], args[1], args[2])
-            
-            else:
-                self.cmd_promote(self.channel, args[0], args[1])
         
         elif cmd == 'demote':
             args = args.split(' ', 2)
             if len(args) == 3:
                 # args = [channel, username, mod]
                 self.cmd_demote(args[0], args[1], args[2])
-            
-            else:
-                self.cmd_demote(self.channel, args[0], args[1])
         
         elif cmd == 'list':
             if args:
@@ -284,6 +281,12 @@ class Client(object):
             
             else:
                 self.cmd_list(self.channel)
+        
+        elif cmd == 'motd':
+            args = args.split(' ', 1)
+            if len(args) == 2:
+                # args = [channel, msg]
+                self.cmd_motd(args[0], args[1])
         
         elif cmd == 'help':
             self.cmd_help()
@@ -304,50 +307,30 @@ class Client(object):
         
         # Server moderation
         elif cmd == 'server':
+            args = args.split(' ', 1)
             sub = args[0]
-            args = args[1:]
+            args = ' '.join(args[1:])
             
             if sub == 'kick':
-                args = args.split(' ', 1)
-                if len(args) == 2:
-                    self.cmd_server_kick(args[0], args[1])
-                
-                else:
-                    self.cmd_server_kick(self.channel, args[0])
+                self.cmd_server_kick(args)
             
             elif sub == 'ban':
-                args = args.split(' ', 1)
-                if len(args) == 2:
-                    self.cmd_server_ban(args[0], args[1])
-                
-                else:
-                    self.cmd_server_ban(self.channel, args[0])
+                self.cmd_server_ban(args)
             
             elif sub == 'unban':
-                args = args.split(' ', 1)
-                if len(args) == 2:
-                    self.cmd_server_unban(args[0], args[1])
-                
-                else:
-                    self.cmd_server_unban(self.channel, args[0])
+                self.cmd_server_unban(args)
             
             elif sub == 'promote':
                 args = args.split(' ', 2)
                 if len(args) == 2:
                     # args = [username, mod]
                     self.cmd_server_promote(args[0], args[1])
-                
-                else:
-                    self.cmd_server_promote(self.channel, args[0])
             
             elif sub == 'demote':
                 args = args.split(' ', 2)
                 if len(args) == 2:
                     # args = [username, mod]
                     self.cmd_server_demote(args[0], args[1])
-                
-                else:
-                    self.cmd_server_demote(self.channel, args[0])
             
             elif sub == 'forcekill':
                 self.cmd_server_forcekill(args)
@@ -414,6 +397,7 @@ class Client(object):
         
         if not self.test_srank(4): return
         
+        message = '{0} --> {1}: {2}'.format(self.name, user, message)
         self.server.message_user(self.name, user, message)
     
     def cmd_join(self, channel):
@@ -429,7 +413,7 @@ class Client(object):
                             'motd' : 'Welcome!'}
             
             self.server.channel_data[channel] = channel_data
-            self.server.channel_cache[channel] = []
+            self.server.channel_cache[channel] = set([])
         
         channel_data = self.server.channel_data[channel]
         # Check if the whitelist applies.
@@ -452,8 +436,8 @@ class Client(object):
             self.channel_ranks[channel] = 5
         
         user_id = self.functions['user-id']
-        self.server.channel_cache[channel].append(user_id)
-        self.channels.append(channel)
+        self.server.channel_cache[channel].add(user_id)
+        self.channels.add(channel)
         
         self.server.message_user('ServerNinja', self.name,
                                  channel_data['motd'])
@@ -585,6 +569,9 @@ class Client(object):
                                              client.logged_in_name,
                                              client.server_rank,
                                              server_rank_name)
+                    
+                    if self.test_srank(1):
+                        message += '\nIP Hash: {0}'.format(self.functions['ip-hash'])
                 
                 else:
                     message = message.format(user, client.logged_in)
@@ -594,21 +581,23 @@ class Client(object):
     # Channel moderation commands
     def cmd_motd(self, channel, motd):
         # Change the channel Message of the Day.
-        if not self.test_crank(3): return
+        if not self.test_crank(channel, 3): return
         
         self.server.channel_data[channel]['motd'] = motd
+        save_data('channels.txt', self.server.channel_data)
         
-        self.response_common('motd')
+        self.response_common(channel, 'motd', self.name, motd)
     
     def cmd_flags(self, channel, flags):
         if not self.test_crank(3) and not self.test_srank(1): return
         
-        if 'p' in flags and not self.test_srank(1):
+        if 'p' in flags and self.test_srank(1):
             flags = flags.replace('p', '')
         
         self.server.channel_data[channel]['flags'] = flags
+        save_data('channels.txt', self.server.channel_data)
         
-        self.response_common('flags', flags)
+        self.response_common(channel, 'flags', flags)
     
     def cmd_kick(self, channel, user):
         # Force a user to leave a channel.
@@ -618,29 +607,30 @@ class Client(object):
         if user_id in self.server.channel_cache[channel]:
             self.server.users[user_id].cmd_part(channel)
         
-        self.response_common('kick', user, self.name)
+        self.response_common(channel, 'kick', user, self.name)
     
     def cmd_ban(self, channel, user):
         # Keep a user from entering this channel.
-        if not self.test_crank(channel, 2): return
+        if not self.test_crank(channel, 2) and not self.test_srank(1): return
         
-        self.server.channel_data[channel]['blacklist'].append(user)
+        self.server.channel_data[channel]['blacklist'].add(user)
         
         user_id = self.server.get_id(user)
         if user in self.server.channel_cache[channel]:
             self.server.users[user_id].cmd_part(channel)
         
-        self.response_common('ban', user, self.name)
+        self.response_common(channel, 'ban', user, self.name)
     
     def cmd_unban(self, channel, user):
         # Unban a user from a channel.
-        if not self.test_crank(channel, 2): return
+        if not self.test_crank(channel, 2) and not self.test_srank(1): return
         
         self.server.channel_data[channel]['blacklist'].remove(user)
+        self.response_common(channel, 'unban', self.name, user)
     
     def cmd_promote(self, channel, user):
         # Increase a user's rank.
-        if not self.test_crank(channel, 2): return
+        if not self.test_crank(channel, 2) and not self.test_srank(1): return
         
         channel_data = self.server.channel_data[channel]
         if user not in channel_data['ranked']:
@@ -651,7 +641,7 @@ class Client(object):
     
     def cmd_demote(self, channel, user):
         # Decrease a user's rank.
-        if not self.test_crank(channel, 2): return
+        if not self.test_crank(channel, 2) and not self.test_srank(1): return
         
         channel_data = self.server.channel_data[channel]
         if user not in channel_data['ranked']:
@@ -883,7 +873,7 @@ class Client(object):
         
         # MOTD changed
         elif message_type == 'motd':
-            message = 'MOTD has been updated.'
+            message = '{0} has updated MOTD to {1}.'.format(*args)
         
         # Flags changed
         elif message_type == 'flags':
