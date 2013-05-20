@@ -18,8 +18,55 @@
 import threading
 import cPickle
 import urllib
+import os
 
 from time import strftime
+
+
+DIRECTORY = 'chat4'
+
+def save_data(fn, data):
+    fn = os.path.join(DIRECTORY, fn)
+    data_file = open(fn, 'w')
+    cPickle.dump(data, data_file)
+    data_file.close()
+
+def load_data(fn):
+    fn = os.path.join(DIRECTORY, fn)
+    try:
+        data_file = open(fn, 'r')
+        data = cPickle.load(data_file)
+        data_file.close()
+        return data
+    
+    except IOError, e:
+        data_file = open(fn, 'w')
+        data_file.close()
+        return False
+
+def save_log(fn, data):
+    fn = os.path.join(DIRECTORY, fn)
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'w')
+    log_file.write(data)
+    log_file.close()
+
+def append_log(fn, data):
+    fn = os.path.join(DIRECTORY, fn)
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'w+')
+    log_file.writeline(data)
+    log_file.close()
+
+def ensure_dir(d):
+    if not os.path.exists(d):
+        os.makedirs(d)
+
+ensure_dir(DIRECTORY)
 
 class Server(threading.Thread):
     
@@ -888,36 +935,3 @@ class Client(object):
             message = '{0} was just owned by {1}.'.format(*args)
         
         self.server.message_channel(channel, message)
-
-def save_data(fn, data):
-    data_file = open(fn, 'w')
-    cPickle.dump(data, data_file)
-    data_file.close()
-
-def load_data(fn):
-    try:
-        data_file = open(fn, 'r')
-        data = cPickle.load(data_file)
-        data_file.close()
-        return data
-    
-    except IOError, e:
-        data_file = open(fn, 'w')
-        data_file.close()
-        return False
-
-def save_log(fn, data):
-    if isinstance(data, list):
-        data = '\n'.join(data)
-    
-    log_file = open(fn, 'w')
-    log_file.write(data)
-    log_file.close()
-
-def append_log(fn, data):
-    if isinstance(data, list):
-        data = '\n'.join(data)
-    
-    log_file = open(fn, 'w+')
-    log_file.writeline(data)
-    log_file.close()

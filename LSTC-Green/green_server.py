@@ -38,6 +38,7 @@ class Server(object):
         # Load each plugin
         for plugin in load_plugins:
             try:
+                # Load the plugin file and call the server class.
                 exec("""
 import plugins.{0}
 self.plugins[plugin] = plugins.{0}.Server()
@@ -63,6 +64,7 @@ self.plugins[plugin] = plugins.{0}.Server()
         try:
             self.stream.serve_forever()
         
+        # Wait until kill signal is sent.
         except KeyboardInterrupt:
             pass
         
