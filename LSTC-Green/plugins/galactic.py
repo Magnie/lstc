@@ -180,10 +180,11 @@ class Server(threading.Thread):
         """Returns a universe with an open spot for a player to join."""
         
         for uni in self.universes:
-            if uni.spot_open():
-                return uni
+            spot = uni.spot_open() # Get the spot number/id
+            if spot: # If it's not False, then return it.
+                return uni, spot
         
-        return False
+        return False, None # No space available
 
 
 class Universe(object):
@@ -194,17 +195,17 @@ class Universe(object):
         
         self.ships = {}
         for x in xrange(1, self.max_ships):
-            self.ships[str(x)] = None
+            self.ships['s' + str(x)] = None
         
         self.bullets = {}
         for x in xrange(1, self.max_bullets):
-            self.bullets[str(x)] = None
+            self.bullets['b' + str(x)] = None
     
     def spot_open(self):
         """Check if a spot is available in the universe"""
         for x in self.ships:
-            if not x:
-                return True
+            if not x: # (if x == None)
+                return x
         
         return False
     
@@ -217,11 +218,20 @@ class Universe(object):
                 pass
     
         # Update objects in motion
-        for ship in self.ships:
-            pass
+        for ship_id in self.ships:
+            ship = self.ships[ship_id]
+            ship.update()
         
         for bullet in self.bullets:
             pass
+    
+    def get_objects(self, ship_id):
+        ship = self.ships[ship_id]
+        if
+        objects = {'ships': self.ships,
+                   'bullets': self.bullets,
+                   'planets':
+        return {}
 
 
 class Client(object):
@@ -242,12 +252,12 @@ class Client(object):
             if cmd == 'login':
                 name, passwd = args.split(' ', 1)
                 if self.server.check_account(name, passwd):
-                    universe = self.server.get_universe()
+                    universe, ship_id = self.server.get_universe()
                     
                     if universe:
                         self.logged_in = True
                         data = self.server.ship_data(name)
-                        self.ship = Ship(universe, data,
+                        self.ship = Ship(universe, data, ship_id,
                                          self.functions['sensor-update'],
                                          self.functions['broadcast'])
             
@@ -262,10 +272,11 @@ class Client(object):
 
 class Ship(object):
     
-    def __init__(self, universe, data, sensor, broadcast):
+    def __init__(self, universe, ship_id, data, sensor, broadcast):
         self.universe = universe
         self.send_sensor = sensor
         self.send_broadcast = broadcast
+        self.ship_id = ship_id
         
         # Ship Location
         self.system = data['system']
@@ -278,21 +289,86 @@ class Ship(object):
         self.ship_life = data['hp']
         self.ship_shield = data['shield']
         self.last_planet = data['last']
+        self.accel = 0.2
+        self.max_speed = 5
         
         # Velocities
         self.x_vel = 0
         self.y_vel = 0
+        
+        self.thrust = False
+        self.turn_left = False
+        self.turn_right = False
     
     def new_action(self, cmd, args):
         if cmd == 'thrust':
-            pass
+            self.thrust = True
+        
+        elif cmd == 'nothrust':
+            self.thrust = False
         
         elif cmd == 'left':
-            pass
+            self.turn_left = True
+        
+        elif cmd == 'noleft':
+            self.turn_left = False
         
         elif cmd == 'right':
-            pass
+            self.turn_right = True
+        
+        elif cmd == 'noright':
+            self.turn_right = False
+        
+        elif cmd == 'getid':
+            self.send_sensor('your id', self.ship_id)
+            self.send_broadcast('id sent')
+        
+        elif cmd == 'getall':
+            objects = self.universe.get_objects()
+            ships = objects['ships']
+            bullets = objects['bullets']
+            planets = objects['planets']
+            
+            for ship_id in ships:
+                name = 'ship' + ship_id
+                ship = ships[ship_id]
+                
+                self.send_sensor(name + 'p', ship.ship_id)
+                self.send_sensor(name + 'x', ship.x_pos)
+                self.send_sensor(name + 'y', ship.y_pos)
+                self.send_sensor(name + 'd', ship.dir)
+            
+            self.send_broadcast('refresh')
     
     def update(self):
-        pass
+        if self.thrust:
+            xin = math.sin(self.dir) * self.accel
+            yin = math.cos(self.dir) * self.accel
+            if abs(self.x_vel + xin) < self.max_speed:
+                self.x_vel += xin
+            
+            if abs(self.y_vel + yin) < self.max_speed):
+                self.y_vel += yin
+        
+        if self.turn_left:
+            self.dir -= 15
+        
+        if self.turn_right:
+            self.dir += 15
+        
+        if self.dir > 360:
+            self.dir -= 360
+        
+        elif self.dir < 0:
+            self.dir += 360
+        
+        self.x_pos += self.x_vel
+        self.y_pos += self.y_vel
+    
+    def in_range(self, x, y, radius):
+        dist = (x - self.x_pos ** 2) + ((y - self.y_pos) ** 2)
+        if dist < radius:
+            return True
+        
+        return False
         

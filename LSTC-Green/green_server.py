@@ -4,6 +4,7 @@
 
 import hashlib
 from array import array
+import time
 
 import gevent
 from gevent.server import StreamServer
@@ -232,6 +233,10 @@ class Client(object):
         elif request == 'version':
             if isinstance(args[0], float) or isinstance(args[0], int):
                 self.client_version = args[0]
+        
+        # Return the minutes since 2000.
+        elif request == 'time':
+            self.send_sensor('stime', str(round(time.time() / 60)))
         
         # Forward to plugin.
         elif request == '>':

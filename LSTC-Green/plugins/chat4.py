@@ -79,15 +79,17 @@ class Server(threading.Thread):
         self.ranks = ['Owner', 'Admin', 'Operator', 'Half-Op',
                       'Voice', 'Normal', 'Shunned']
         
+        self.scratch_login = False
+        
         self.channel_data = load_data('channels.txt')
         
         if not self.channel_data:
-            self.channel_data = {'scratch' : {'ranked' : {self.owner : 0},
-                                              'whitelist' : [self.owner],
-                                              'blacklist' : [],
-                                              'mutelist': [],
-                                              'flags' : 'bp',
-                                              'motd' : 'Welcome!'}}
+            self.channel_data = {'scratch' : {'ranked': {self.owner : 0},
+                                              'whitelist': [self.owner],
+                                              'blacklist': set([]),
+                                              'mutelist': set([]),
+                                              'flags': 'bp',
+                                              'motd': 'Welcome!'}}
             save_data('channels.txt', self.channel_data)
         
         
@@ -97,8 +99,13 @@ class Server(threading.Thread):
         
         self.account_data = load_data('accounts.txt')
         if not self.account_data:
-            self.account_data = {self.owner : 0}
+            self.account_data = {self.owner: 0}
             save_data('accounts.txt', self.account_data)
+        
+        self.login_data = load_data('logins.txt')
+        if not self.login_data:
+            self.login_data = {self.owner: '123'}
+            save_data('logins.txt', self.login_data)
         
         self.banned_accounts = set([])
         
@@ -310,16 +317,19 @@ class Client(object):
                 self.cmd_unban(self.channel, args[0])
         
         elif cmd == 'promote':
-            args = args.split(' ', 2)
-            if len(args) == 3:
+            args = args.split(' ', 1)
+            if len(args) == 2:
                 # args = [channel, username, mod]
-                self.cmd_promote(args[0], args[1], args[2])
+                self.cmd_promote(args[0], args[1])
+            
+            else:
+                self.cmd_promote(self.channel, args[0])
         
         elif cmd == 'demote':
             args = args.split(' ', 2)
             if len(args) == 3:
                 # args = [channel, username, mod]
-                self.cmd_demote(args[0], args[1], args[2])
+                self.cmd_demote(args[0], args[1])
         
         elif cmd == 'list':
             if args:
@@ -539,6 +549,59 @@ class Client(object):
             self.response_user(message_type='logged in')
             return
         
+        if not self.server.scratch_login:
+            login_data = self.server.login_data
+            if scratch_user in login_data:
+                if login_data[scratch_user] == scratch_password:
+                    self.logged_in = True
+                    self.logged_in_name = scratch_user
+                    
+                    accounts = self.server.account_data
+                    if scratch_user in accounts:
+                        # If the account exists, use the saved rank.
+                        self.server_rank = accounts[scratch_user]
+                
+                    else:
+                        # If the account doesn't exist, create it.
+                        accounts[scratch_user] = 4
+                        save_data('accounts.txt', self.server.account_data)
+                
+                    self.server_rank = accounts[scratch_user]
+                    for channel in self.channels:
+                        channel_data = self.server.channel_data[channel]
+                        if self.logged_in_name in channel_data['ranked']:
+                            name = channel_data['ranked'][self.logged_in_name]
+                            self.channel_ranks[channel] = name
+                
+                    self.response_user('login successful')
+            else:
+                self.logged_in = True
+                self.logged_in_name = scratch_user
+                
+                login_data[scratch_user] = scratch_password
+                save_data('logins.txt', login_data)
+                
+                accounts = self.server.account_data
+                if scratch_user in accounts:
+                    # If the account exists, use the saved rank.
+                    self.server_rank = accounts[scratch_user]
+                
+                else:
+                    # If the account doesn't exist, create it.
+                    accounts[scratch_user] = 4
+                    save_data('accounts.txt', self.server.account_data)
+                
+                self.server_rank = accounts[scratch_user]
+                for channel in self.channels:
+                    channel_data = self.server.channel_data[channel]
+                    if self.logged_in_name in channel_data['ranked']:
+                        name = channel_data['ranked'][self.logged_in_name]
+                        self.channel_ranks[channel] = name
+                
+                self.response_user('login successful')
+                
+            return
+        
         details = {'username' : scratch_user,
                    'password' : scratch_password}
         string = "http://scratch.mit.edu/api/authenticateuser?"
@@ -685,6 +748,8 @@ class Client(object):
         
         if channel_data['ranked'][user] != 0:
             channel_data['ranked'][user] -= 1
+        
+        save_data('channels.txt', self.server.channel_data)
     
     def cmd_demote(self, channel, user):
         # Decrease a user's rank.
@@ -696,6 +761,8 @@ class Client(object):
         
         if channel_data['ranked'][user] != len(self.server.ranks) - 1:
             channel_data['ranked'][user] += 1
+        
+        save_data('channels.txt', self.server.channel_data)
     
     # Server moderation commands
     def cmd_report_abuse(self, message):
@@ -748,12 +815,14 @@ class Client(object):
         if not self.test_srank(1): return
         
         if user in self.server.account_data:
-            self.server.account_data[user] -= mod
+            self.server.account_data[user] -= int(mod)
             
             if self.server.account_data[user] < 0:
                 self.server.account_data[user] = 0
             
             self.server_rank = self.server.account_data[user]
+        
+        save_data('accounts.txt', self.server.account_data)
     
     def cmd_server_demote(self, user, mod):
         # Decrease a user's rank on the server.
@@ -766,6 +835,8 @@ class Client(object):
                 self.server.account_data[user] = len(self.server.ranks) - 1
             
             self.server_rank = self.server.account_data[user]
+        
+        save_data('accounts.txt', self.server.account_data)
     
     def cmd_server_nick(self, user, new_name):
         # Force a user to change names.
@@ -877,6 +948,9 @@ class Client(object):
         
         elif message_type == 'login successful':
             message = 'You have logged in successfully.'
+        
+        else:
+            message = "Undefined response message."
         
         self.server.message_user('ServerNinja', self.name, message)
     
