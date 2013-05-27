@@ -3,16 +3,42 @@
 # By: Magnie
 
 import hashlib
-from array import array
 import time
-
 import gevent
-from gevent.server import StreamServer
+import traceback
+import sys
+import os
 
+from array import array
+from gevent.server import StreamServer
 from gevent import monkey
 monkey.patch_socket()
 
 DEBUG_MODE = True
+DIRECTORY = "./"
+def save_log(fn, data):
+    fn = os.path.join(DIRECTORY, fn)
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'w')
+    log_file.write(data)
+    log_file.close()
+
+def append_log(fn, data):
+    fn = os.path.join(DIRECTORY, fn)
+    if isinstance(data, list):
+        data = '\n'.join(data)
+    
+    log_file = open(fn, 'a+')
+    log_file.write('\n[{0}] '.format(strftime('%H:%M:%S')) + data)
+    log_file.close()
+
+def ensure_dir(d):
+    if not os.path.exists(d):
+        os.makedirs(d)
+
+ensure_dir(DIRECTORY)
 
 
 class Server(object):
@@ -51,8 +77,8 @@ self.plugins[plugin] = plugins.{0}.Server()
                 # Create a plugin user ban list
                 self.plugin_bans[plugin] = set([])
             
-            except Exception, e:
-                print '{0} broke and gave error: {1}'.format(plugin, e)
+            except:
+                append_log("server_errors.txt", traceback.format_exc())
             
     
     def _run(self):
@@ -80,18 +106,23 @@ self.plugins[plugin] = plugins.{0}.Server()
         """The handle for new connections"""
         self.threads.append(Client(socket, address, self))
     
+    def clean_threads(self):
+        for thread in list(self.threads):
+            if not thread.keep_alive:
+                ip_hash = thread.ip_hash
+                self.threads.remove(thread)
+                print ip_hash + ' removed.'
+    
     def reload_plugin(self, name):
         """Restart a plugin to run the most recent version. Useful for updating
         plugins without restarting the server."""
         if name in self.plugins:
             # Shut down the plugin
             self.plugins[name].disconnect()
-            debug(self.threads)
+            
             for client in self.threads:
                 if name in client.plugins:
                     client.plugins.remove(name)
-                
-                debug(client.plugins)
             
             # import the new version and start up that server.
             try:
@@ -116,13 +147,13 @@ class Client(object):
         # This is a complete and total hack, for some reason
         # Server.handler() won't append it like it's supposed to.
         server.threads.append(self)
-        debug(server.threads)
+        
+        self.keep_alive = True
+        server.clean_threads()
         
         # Create a "public hash" of the IP. Might need to add a salt.
         self.ip_hash = hashlib.md5(self.addr[0]).hexdigest()
         
-        self.keep_alive = True
-        print s.blacklist
         if self.addr[0] in s.blacklist or self.ip_hash in s.blacklist:
             print self.ip_hash + ' is banned.'
             self.socket.close()
@@ -139,6 +170,14 @@ class Client(object):
         
         # Can be used by plugins to force clients to update.
         self.client_version = 0;
+        
+        # Sensor Updates to send
+        self.sensor_updates = {}
+        
+        # Broadcasts to send
+        self.broadcasts = []
+        
+        self.processing = False
         
         print self.ip_hash + ' has connected.'
         
@@ -158,6 +197,8 @@ class Client(object):
                 # If an error occurs, pretend no data was sent.
                 data = None
             
+            self.processing = True
+            
             # If no data is available, stop the loop.
             if not data or data == '\x00\x00\x00\x00':
                 self.running = False
@@ -171,21 +212,30 @@ class Client(object):
                 
                 for i in sent:
                     # Send to another function.
-                    self.deal_with(i)
+                    if isinstance(sent, dict):
+                        self.deal_with(sent[i])
+                    
+                    else:
+                        self.deal_with(i)
             
             if not self.keep_alive:
                 self.running = False
                 break
+            
+            self.all_sensors()
+            self.all_broadcasts()
+            self.processing = False
         
         # Close the connection.
         for plugin in list(self.plugins):
             try:
                 self.leave_plugin(plugin)
             
-            except Exception, e:
-                print e
+            except:
+                append_log("server_errors.txt", traceback.format_exc())
         
         print self.ip_hash + ' has disconnected.'
+        self.keep_alive = False
         self.socket.close()
     
     def deal_with(self, raw_message):
@@ -195,6 +245,9 @@ class Client(object):
         # Format: :[command] [plugin] [message]
         # Example: :> template reset
         # Check if it's server specific data
+        if not raw_message: return
+        if not isinstance(raw_message, str): return
+        
         if raw_message[0] != ':':
             return
         
@@ -251,8 +304,8 @@ class Client(object):
                                  self.user_id,
                                  forward)
                 
-                except Exception:
-                    pass
+                except:
+                    append_log("server_errors.txt", traceback.format_exc())
     
     def functions(self):
         """Returns a dictionary of functions that can be used by plugins."""
@@ -271,6 +324,7 @@ class Client(object):
     def force_kill(self):
         # Force a user to disconnect.
         self.keep_alive = False;
+        self.socket.close()
     
     def server_ban(self, ip_hash):
         # Ban this IP hash.
@@ -292,28 +346,65 @@ class Client(object):
             plugin.lost_user(self.user_id)
     
     def send_broadcast(self, message):
-        """Sends a broadcast to Scratch."""
-        message = 'broadcast "{0}"'.format(message)
-        # Add the length to the beginning of the message.
+        """Adds message to a broadcast list to be sent at the end of
+           receiving a message."""
+        self.broadcasts.append(message)
+        
+        if not self.processing:
+            self.all_broadcasts()
+    
+    def all_broadcasts(self):
+        """Sends all broadcasts in self.broadcasts to Scratch in
+           a single packet"""
+        
+        # Format the packet
+        message = 'broadcast '
+        for broadcast in self.broadcasts:
+            message += '"{0}" '.format(broadcast)
+        
+        # Add it's length to the beginning
         message = s.parser.add_length(message)
-        # Send it to the client.
+        
+         # Send it to the client.
         try:
             self.socket.send(message)
         
         except: # TODO: Disconnect user if message fails.
+            append_log("server_errors.txt", traceback.format_exc())
             self.socket.close()
+        
+        self.broadcasts = []
     
     def send_sensor(self, name, value):
-        """Sends a sensor-update to Scratch."""
-        message = 'sensor-update "{0}" "{1}"'.format(name, value)
-        # Add the length to the beginning of the message.
+        """Adds the sensor to self.sensor_updates to be sent at the
+           end of receiving a message from Scratch."""
+        
+        self.sensor_updates[name] = value
+        if not self.processing:
+            self.all_sensors()
+    
+    def all_sensors(self):
+        """Send all sensor-updates in a single packet"""
+        
+        # Format the packet
+        message = 'sensor-update '
+        for sensor in self.sensor_updates:
+            value = self.sensor_updates[sensor]
+            message += '"{0}" "{1}" '.format(sensor, value)
+        
+        # Add it's length to the beginning
         message = s.parser.add_length(message)
+        
         # Send it to the client.
         try:
             self.socket.send(message)
         
         except: # TODO: Disconnect user if message fails.
+            append_log("server_errors.txt", traceback.format_exc())
             self.socket.close()
+        
+        self.sensor_updates = {}
+        
     
 def dict_from_flat_generator(gen):
     """Convert [key, value, key, value] iterable to dict"""
@@ -323,7 +414,7 @@ def dict_from_flat_generator(gen):
 class ScratchParser(object):
     # Thanks to blob8108:
     # http://scratch.mit.edu/forums/viewtopic.php?pid=1424108#p1424108
-    MSG_TYPES = ["broadcast", "sensor-update", "peer-name"]
+    MSG_TYPES = ["broadcast", "sensor-update", "peer-name", "send-vars"]
     
     def get_messages(self, message):
         i = 0
@@ -430,6 +521,9 @@ class ScratchParser(object):
         return list(parts)[0]
         # do stuff...
     
+    def parse_send_vars(self, parts):
+        return dict_from_flat_generator(parts)
+    
     def add_length(self, cmd):
         # Defines the length of each message.
         n = len(cmd)
@@ -442,8 +536,9 @@ class ScratchParser(object):
 
 def debug(string):
     if DEBUG_MODE:
+        append_log("server_errors.txt", string)
         print string
 
 if __name__ == "__main__":
-    s = Server(['template', 'chat4']) 
+    s = Server(['template', 'chat4', 'galactic']) 
     s._run()

@@ -58,8 +58,8 @@ def append_log(fn, data):
     if isinstance(data, list):
         data = '\n'.join(data)
     
-    log_file = open(fn, 'w+')
-    log_file.writeline(data)
+    log_file = open(fn, 'a+')
+    log_file.write('\n[{0}] '.format(strftime('%H:%M:%S')) + data)
     log_file.close()
 
 def ensure_dir(d):
@@ -108,6 +108,7 @@ class Server(threading.Thread):
             save_data('logins.txt', self.login_data)
         
         self.banned_accounts = set([])
+        self.banned_names = set(['ServerNinja'])
         
         self.chat_version = 4.0;
     
@@ -155,6 +156,8 @@ class Server(threading.Thread):
         for user_id in self.users:
             user = self.users[user_id]
             self.message_send('ServerNinja', user, message)
+        
+        append_log("server.txt", message)
     
     def message_channel(self, channel, message):
         # Send message to only people in a specific channel.
@@ -164,6 +167,9 @@ class Server(threading.Thread):
         for user_id in self.channel_cache[channel]:
             user = self.users[user_id]
             self.message_send(channel, user, message)
+        
+        fn = 'chn_' + channel + '.txt'
+        append_log(fn, message)
     
     def message_user(self, from_user, user_name, message):
         # Send message to a specific person.
@@ -172,6 +178,12 @@ class Server(threading.Thread):
             if user.name == user_name:
                 self.message_send(from_user, user, message)
                 break
+        
+        # Don't save messages from ServerNinja.
+        if from_user == 'ServerNinja': return
+        
+        fn = 'pm_' + from_user + '_' + user_name + '.txt'
+        append_log(fn, message)
     
     def message_send(self, from_user, to_user, message):
         # Send the message and other associated data.
@@ -250,8 +262,6 @@ class Client(object):
                 
                 else:
                     args = None
-        
-        print cmd, args
         
         if cmd == 'pm':
             args = args.split(' ', 1)
@@ -528,6 +538,9 @@ class Client(object):
         # Check if they are allowed to change their name.
         if not self.name_change:
             self.response_user(message_type='name disabled')
+            return
+        
+        if new_name in self.server.banned_names:
             return
         
         # Check if the name is already in use.
