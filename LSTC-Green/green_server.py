@@ -8,11 +8,15 @@ import gevent
 import traceback
 import sys
 import os
+import random
 
 from array import array
+from time import strftime
 from gevent.server import StreamServer
 from gevent import monkey
 monkey.patch_socket()
+
+KEY = ''.join([chr(random.randrange(32, 126)) for x in xrange(0, 7)])
 
 DEBUG_MODE = True
 DIRECTORY = "./"
@@ -39,6 +43,7 @@ def ensure_dir(d):
         os.makedirs(d)
 
 ensure_dir(DIRECTORY)
+save_log('key.txt', KEY)
 
 
 class Server(object):
@@ -153,6 +158,8 @@ class Client(object):
         
         # Create a "public hash" of the IP. Might need to add a salt.
         self.ip_hash = hashlib.md5(self.addr[0]).hexdigest()
+        line = '{0} --> {1}'.format(self.addr[0], self.ip_hash)
+        append_log('ip_log.txt', line)
         
         if self.addr[0] in s.blacklist or self.ip_hash in s.blacklist:
             print self.ip_hash + ' is banned.'

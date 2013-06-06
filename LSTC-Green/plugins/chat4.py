@@ -20,7 +20,7 @@ import cPickle
 import urllib
 import os
 
-from time import strftime
+from time import strftime, time
 
 
 DIRECTORY = 'chat4'
@@ -85,7 +85,7 @@ class Server(threading.Thread):
         
         if not self.channel_data:
             self.channel_data = {'scratch' : {'ranked': {self.owner : 0},
-                                              'whitelist': [self.owner],
+                                              'whitelist': set([self.owner]),
                                               'blacklist': set([]),
                                               'mutelist': set([]),
                                               'flags': 'bp',
@@ -148,6 +148,11 @@ class Server(threading.Thread):
     def kill_user(self, name):
         user_id = self.get_id(name)
         self.users[user_id].functions['force-kill']()
+        self.lost_user(user_id)
+    
+    def kick_user(self, name):
+        user_id = self.get_id(name)
+        self.users[user_id].functions['leave-plugin']('chat4')
     
     # Message functions
     
@@ -191,6 +196,7 @@ class Server(threading.Thread):
         current_time = strftime('%H:%M:%S')
         # Add timestamp
         message = '[{0}]{1}'.format(current_time, message)
+        message = message.replace('"', '""')
         # Update from sensor.
         to_user.send_sensor('from', from_user)
         # Update message sensor.
@@ -232,6 +238,16 @@ class Client(object):
         self.x_pos = 0
         self.y_pos = 0
         
+        # Spam defense thing
+        self.mps = 3
+        self.cur_mps = 0
+        self.last_message = 0
+        self.temp_silence = 0
+        self.time_penalty = 5
+        
+        self.penalties = 0
+        self.max_penalties = 5
+        
         # Access to server class functions
         self.server = server
         
@@ -241,6 +257,28 @@ class Client(object):
         self.send_broadcast('new_message')
     
     def new_message(self, raw_message):
+        # Don't allow spam, create a limit on how many messages you can
+        # send in a second.
+        if time() < self.temp_silence:
+            self.response_user('silence')
+            return
+        
+        if time() < self.last_message:
+            self.cur_mps += 1
+            if self.cur_mps >= self.mps:
+                self.temp_silence = time() + self.time_penalty
+                self.response_user('silenced')
+                self.penalties += 1
+                if self.penalties > self.max_penalties:
+                    self.server.kick_user(self.name)
+                    self.response_common('spam kick')
+                    self.temp_silence = time() + 9999
+                return
+        
+        else:
+            self.last_message = time() + 1
+            self.cur_mps = 0
+        
         message = raw_message.split(':', 1)
         cmd = message[0]
         args = None
@@ -280,6 +318,9 @@ class Client(object):
         elif cmd == 'nick':
             self.cmd_nick(args)
         
+        elif cmd == 'rinfo':
+            self.cmd_rinfo()
+        
         # Authentication
         elif cmd == 'login':
             args = args.split(' ', 1)
@@ -290,6 +331,9 @@ class Client(object):
         
         elif cmd == 'whois':
             self.cmd_whois(args)
+        
+        elif cmd == 'change':
+            self.cmd_change_pass(args)
         
         # Channel moderation
         elif cmd == 'kick':
@@ -369,7 +413,7 @@ class Client(object):
         # Report abusive message/conversation
         elif cmd == 'report':
             if args:
-                # args = channel
+                # args = message
                 self.cmd_report_abuse(args)
         
         # Server moderation
@@ -466,6 +510,7 @@ class Client(object):
         
         message = '{0} --> {1}: {2}'.format(self.name, user, message)
         self.server.message_user(self.name, user, message)
+        self.server.message_user(self.name, self.name, message)
     
     def cmd_join(self, channel):
         # Join a new channel
@@ -547,13 +592,30 @@ class Client(object):
         if self.server.get_id(new_name):
             return
         
+        # Make sure name is less than 16 characters
+        if len(new_name) > 15:
+            return
+        
         for channel in self.channel_ranks:
             self.response_common(channel, 'rename',
                                  self.name, new_name)
         
+        message = '{0}~ {1} renames to {2}.'
+        message = message.format(self.functions['ip-hash'], self.name, new_name)
+        append_log('name_changes.txt', message)
         self.name = new_name
     
     # Authentication commands
+    
+    def cmd_change_pass(self, new_password):
+        if not self.test_srank(4):
+            return
+        
+        name = self.logged_in_name
+        self.server.login_data[name] = new_password
+        save_data('accounts.txt', self.server.account_data)
+        self.response_user(message_type='reset')
+        
     
     def cmd_login(self, scratch_user, scratch_password):
         # Authenticate with a Scratch account
@@ -681,7 +743,7 @@ class Client(object):
                     message += 'Logged in as: {2}\n'
                     message += 'Server rank: {3} - {4}\n'
                     message += 'Channel Ranks: \n'
-                    for channel in self.channel_ranks:
+                    for channel in client.channel_ranks:
                         crank = self.channel_ranks[channel]
                         crank_name = self.server.ranks[crank]
                         message += '  {0}: {1} - {2}\n'.format(channel,
@@ -692,12 +754,12 @@ class Client(object):
                                              client.logged_in_name,
                                              client.server_rank,
                                              server_rank_name)
-                    
-                    if self.test_srank(1):
-                        message += '\nIP Hash: {0}'.format(self.functions['ip-hash'])
                 
                 else:
                     message = message.format(user, client.logged_in)
+                
+                if self.test_srank(1):
+                        message += '\nIP Hash: {0}'.format(client.functions['ip-hash'])
                 
                 self.server.message_user(user, self.name, message)
     
@@ -762,6 +824,7 @@ class Client(object):
         if channel_data['ranked'][user] != 0:
             channel_data['ranked'][user] -= 1
         
+        self.response_user('promoted')
         save_data('channels.txt', self.server.channel_data)
     
     def cmd_demote(self, channel, user):
@@ -775,52 +838,62 @@ class Client(object):
         if channel_data['ranked'][user] != len(self.server.ranks) - 1:
             channel_data['ranked'][user] += 1
         
+        self.response_user('demoted')
         save_data('channels.txt', self.server.channel_data)
     
     # Server moderation commands
+    def cmd_rinfo(self):
+        message = str(self.report_log)
+        self.server.message_user('ServerNinja', self.name, message)
+    
     def cmd_report_abuse(self, message):
         # Report this line as abusive or against the rules.
-        
+        print message
         report_type, reported_msg = message.split(':', 1)
         if report_type == 'start':
             date = strftime('%D/%M/%Y %h:%m:%s')
             self.report_log = ['Report starting at {0}.'.format(date)]
-            self.report_log.append(message)
+            self.report_log.append(reported_message)
         
         elif report_type == 'end':
-            date = strftime('%D/%M/%Y %h:%m:%s')
-            self.report_log.append(message)
+            date = strftime('%D~%M~%Y_%h:%m:%s')
+            self.report_log.append(reported_message)
             self.report_log.append('Report ending at {0}'.format(date))
             
-            save_log('report_{0}'.format(date), self.report_log)
+            append_log('report_{0}.txt'.format(self.name), self.report_log)
+            self.response_user('report')
         
         else:
-            self.report_log.append(message)
+            self.report_log.append(reported_msg)
         
         return
     
     def cmd_server_kick(self, user):
         # Force a user to leave the server/plugin.
-        if not self.test_srank(4): return
+        if not self.test_srank(2): return
         
-        self.functions['leave-plugin']('chat4')
+        self.response_user('skick')
+        self.server.kick_user(user)
     
     def cmd_server_ban(self, ip_hash):
         # Ban a user from using this server/plugin.
-        if not self.test_srank(1): return
+        if not self.test_srank(2): return
         
+        self.response_user('sban')
         self.functions['server-ban'](ip_hash)
     
     def cmd_server_unban(self, ip_hash):
         # Unban a user.
-        if not self.test_srank(1): return
+        if not self.test_srank(2): return
         
+        self.response_user('sunban')
         self.functions['server-unban'](ip_hash)
     
     def cmd_server_forcekill(self, user):
         # Force a user to disconnect from the server in whole.
-        if not self.test_srank(1): return
+        if not self.test_srank(2): return
         
+        self.response_user('killed')
         self.server.kill_user(user)
     
     def cmd_server_promote(self, user, mod):
@@ -835,6 +908,7 @@ class Client(object):
             
             self.server_rank = self.server.account_data[user]
         
+        self.response_user('promoted')
         save_data('accounts.txt', self.server.account_data)
     
     def cmd_server_demote(self, user, mod):
@@ -849,6 +923,7 @@ class Client(object):
             
             self.server_rank = self.server.account_data[user]
         
+        self.response_user('demoted')
         save_data('accounts.txt', self.server.account_data)
     
     def cmd_server_nick(self, user, new_name):
@@ -872,6 +947,7 @@ class Client(object):
             client = self.server.users[client]
             if client.name == user:
                 client.name_change = False
+                self.response_user('name disabled')
                 break
     
     def cmd_enable_name(self, user):
@@ -882,6 +958,7 @@ class Client(object):
             client = self.server.users[client]
             if client.name == user:
                 client.name_change = True
+                self.response_user('name enabled')
                 break
     
     # Info commands
@@ -957,10 +1034,14 @@ class Client(object):
         elif message_type == 'login failed':
             message = 'Login failed.'
         
+        # User logs out
+        elif message_type == 'logout':
+            message = 'You are now logged out.'
+        
         # Other messages
         
         elif message_type == 'login successful':
-            message = 'You have logged in successfully.'
+            message = 'You are now logged in.'
         
         else:
             message = "Undefined response message."
