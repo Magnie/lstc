@@ -63,3 +63,6 @@ own troubles (as I was borrowing it to host the project on).
 In the end this was probably my greatest learning experience in programming outside of my current MMORPG project. I gained
 friends and it has led me to greater opportunities for which I am grateful for. I am impressed if you read this to the end.
 Thank you!
+
+Remote Sensor Connections: https://wiki.scratch.mit.edu/wiki/Remote_Sensor_Connections
+Mesh: https://wiki.scratch.mit.edu/wiki/Mesh -- I switched over to this instead of using a proxy people had to download in order to make it easier for people to join the server.
